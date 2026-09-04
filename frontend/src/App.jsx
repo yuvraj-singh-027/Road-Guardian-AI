@@ -7,6 +7,7 @@ import TrafficRerouteView from './components/TrafficRerouteView';
 import RiskCalculatorView from './components/RiskCalculatorView';
 import MyReportsView from './components/MyReportsView';
 import PublicFeedHistoryView from './components/PublicFeedHistoryView';
+import N8nAutomationView from './components/N8nAutomationView';
 import UserProfileModal from './components/UserProfileModal';
 import CitizenGuideWidget from './components/CitizenGuideWidget';
 import PortalSelectionSlide from './components/PortalSelectionSlide';
@@ -372,6 +373,9 @@ export default function App() {
         )}
         {activeTab === 'risk-calculator' && (
           userRole === 'admin' ? <RiskCalculatorView initialSubTab="risk-calculator" /> : renderRestrictedAccessNotice()
+        )}
+        {activeTab === 'n8n-automation' && (
+          <N8nAutomationView user={user} />
         )}
       </div>
 

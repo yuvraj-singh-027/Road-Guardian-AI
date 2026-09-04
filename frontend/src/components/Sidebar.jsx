@@ -6,12 +6,14 @@ export default function Sidebar({ activeTab, setActiveTab, userRole, onSelectRol
     { id: 'digital-twin', label: 'Live Road Map', icon: Map, badge: 'Live' },
     { id: 'my-reports', label: 'Reports & Municipal Audit', icon: ClipboardList, badge: 'Audit Hub' },
     { id: 'risk-calculator', label: 'Traffic & Risk Simulator', icon: ShieldAlert, badge: 'SUMO + AI' },
+    { id: 'n8n-automation', label: 'n8n Automation Hub', icon: Zap, badge: 'n8n Cloud' },
   ];
 
   const citizenNavItems = [
     { id: 'detection', label: 'Report Hazard & AI Scanner', icon: Camera, badge: 'Vision' },
     { id: 'my-reports', label: 'My Road Hazard Reports', icon: ClipboardList, badge: 'Tracking' },
     { id: 'public-feed', label: 'Recent Incidents & Live Feed', icon: History, badge: 'Public' },
+    { id: 'n8n-automation', label: 'n8n Workflow Hub', icon: Zap, badge: 'n8n Cloud' },
   ];
 
   const navItems = userRole === 'admin' ? adminNavItems : citizenNavItems;
