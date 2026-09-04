@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Camera, AlertTriangle, ShieldCheck, MapPin, RefreshCw, Clock, History, FileText, Sparkles, PieChart as PieIcon, BarChart2, Locate, Compass, Lock, ClipboardList } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Upload, Camera, AlertTriangle, ShieldCheck, MapPin, RefreshCw, Clock, History, FileText, Sparkles, PieChart as PieIcon, BarChart2, Locate, Compass, Lock, ClipboardList, Navigation, Globe, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 const decimalToDMS = (deg, isLat) => {
@@ -24,7 +26,7 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
   const [facingMode, setFacingMode] = useState('environment'); // environment (back) or user (front)
   const [exifWarning, setExifWarning] = useState(false);
 
-  // Manual location state
+  // Manual location state & rich OpenStreetMap Nominatim intelligence
   const [landmarkName, setLandmarkName] = useState('');
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
@@ -33,7 +35,11 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
   const [gpsAccuracy, setGpsAccuracy] = useState(null);
   const [addressSuggestions, setAddressSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [geoDetails, setGeoDetails] = useState(null);
   const searchTimeoutRef = useRef(null);
+  const miniMapContainerRef = useRef(null);
+  const miniMapRef = useRef(null);
+  const miniMarkerRef = useRef(null);
 
   // Reporter contact email (synced directly with logged-in user or entered email)
   const [reporterEmail, setReporterEmail] = useState(() => {
@@ -91,11 +97,15 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
 
   const resolvePreciseAddress = async (lat, lon) => {
     try {
-      // 1. Try Backend reverse geocoding first
+      // 1. Try Backend reverse geocoding first (which uses high-precision Nominatim + POI)
       try {
         const res = await fetch(`/api/location/reverse-geocode?lat=${lat}&lon=${lon}`);
         if (res.ok) {
           const data = await res.json();
+          if (data.details && data.success) {
+            setGeoDetails(data.details);
+            return data.address || data.primary_landmark;
+          }
           if (data.address && !data.address.startsWith("Road Segment (") && data.address.includes(',')) {
             return data.address;
           }
@@ -104,15 +114,16 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
         console.warn('Backend reverse-geocode fallback:', e);
       }
 
-      // 2. Query OSM Nominatim with zoom=18 for building/road level precision
+      // 2. Client-side Nominatim query with zoom=18 for exact road and building level precision
       const osm = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&namedetails=1`,
+        { headers: { 'Accept-Language': 'en' } }
       );
       if (osm.ok) {
         const data = await osm.json();
         const a = data.address || {};
 
-        const poi = a.amenity || a.building || a.shop || a.office || a.tourism || a.leisure || a.landmark || a.highway;
+        const poi = a.amenity || a.building || a.shop || a.office || a.tourism || a.leisure || a.landmark || a.highway || a.hospital || a.school;
         const houseNumber = a.house_number;
         const road = a.road || a.pedestrian || a.street || a.path || a.footway;
         const locality = a.suburb || a.neighbourhood || a.quarter || a.residential || a.block || a.sector || a.subdivision || a.hamlet;
@@ -123,7 +134,7 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
 
         const parts = [];
         if (poi) parts.push(poi);
-        if (houseNumber && road) parts.push(`${houseNumber} ${road}`);
+        if (houseNumber && road) parts.push(`#${houseNumber}, ${road}`);
         else if (road) parts.push(road);
         if (locality && !parts.includes(locality)) parts.push(locality);
         if (district && !parts.includes(district) && district !== city) parts.push(district);
@@ -131,10 +142,23 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
         if (state && !parts.includes(state)) parts.push(state);
         if (postcode) parts.push(`PIN: ${postcode}`);
 
-        if (parts.length > 0) {
-          return parts.join(', ');
-        }
-        if (data.display_name) return data.display_name;
+        const formatted = parts.length > 0 ? parts.join(', ') : (data.display_name || `Road (${lat.toFixed(6)}°, ${lon.toFixed(6)}°)`);
+
+        setGeoDetails({
+          formatted_address: formatted,
+          primary_landmark: (poi ? `${poi}, ` : '') + (road || locality || city || 'Road Hazard'),
+          road,
+          house_number: houseNumber,
+          suburb: locality,
+          district,
+          city,
+          state,
+          postcode,
+          latitude: lat,
+          longitude: lon
+        });
+
+        return formatted;
       }
     } catch (err) {
       console.warn('Reverse geocode precision error:', err);
@@ -154,7 +178,7 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
     searchTimeoutRef.current = setTimeout(async () => {
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&addressdetails=1&limit=5&countrycodes=in`
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&addressdetails=1&limit=6&countrycodes=in`
         );
         if (res.ok) {
           const results = await res.json();
@@ -167,16 +191,73 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
     }, 300);
   };
 
-  const handleSelectSuggestion = (item) => {
+  const handleSelectSuggestion = async (item) => {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
-    setManualLat(lat.toFixed(6));
-    setManualLon(lon.toFixed(6));
+    const formattedLat = lat.toFixed(6);
+    const formattedLon = lon.toFixed(6);
+    setManualLat(formattedLat);
+    setManualLon(formattedLon);
     setGpsAccuracy(5); // High confidence on chosen street
     setLandmarkName(item.display_name);
     setExifWarning(false);
     setShowSuggestions(false);
+    await resolvePreciseAddress(lat, lon);
   };
+
+  // Synchronize Leaflet Pinpoint Mini-Map
+  useEffect(() => {
+    if (!miniMapContainerRef.current) return;
+    const lat = parseFloat(manualLat);
+    const lon = parseFloat(manualLon);
+    if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return;
+
+    if (!miniMapRef.current) {
+      const map = L.map(miniMapContainerRef.current, {
+        center: [lat, lon],
+        zoom: 16,
+        zoomControl: false,
+        attributionControl: false,
+        scrollWheelZoom: false
+      });
+
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      const marker = L.circleMarker([lat, lon], {
+        radius: 9,
+        fillColor: '#00E6B4',
+        color: '#ffffff',
+        weight: 3,
+        opacity: 1,
+        fillOpacity: 0.95
+      }).addTo(map);
+
+      map.on('click', async (e) => {
+        const newLat = e.latlng.lat;
+        const newLon = e.latlng.lng;
+        setManualLat(newLat.toFixed(6));
+        setManualLon(newLon.toFixed(6));
+        marker.setLatLng([newLat, newLon]);
+        map.panTo([newLat, newLon]);
+        const addr = await resolvePreciseAddress(newLat, newLon);
+        setLandmarkName(`${addr} (📍 ${newLat.toFixed(6)}°, ${newLon.toFixed(6)}°)`);
+      });
+
+      miniMapRef.current = map;
+      miniMarkerRef.current = marker;
+    } else {
+      miniMapRef.current.setView([lat, lon], 16);
+      if (miniMarkerRef.current) {
+        miniMarkerRef.current.setLatLng([lat, lon]);
+      }
+      setTimeout(() => {
+        if (miniMapRef.current) miniMapRef.current.invalidateSize();
+      }, 100);
+    }
+  }, [manualLat, manualLon]);
 
   const handleGetCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -734,6 +815,81 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
                       />
                     </div>
                   )}
+
+                  {/* High-Precision OpenStreetMap Nominatim Granular Breakdown */}
+                  {geoDetails && (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      background: 'rgba(0, 230, 180, 0.05)',
+                      border: '1px solid rgba(0, 230, 180, 0.25)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.74rem', color: '#00E6B4', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <Sparkles size={13} /> OpenStreetMap Nominatim Precision Breakdown
+                        </span>
+                        {manualLat && manualLon && (
+                          <a
+                            href={`https://www.openstreetmap.org/?mlat=${manualLat}&mlon=${manualLon}#map=18/${manualLat}/${manualLon}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: '0.68rem', color: '#38BDF8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}
+                          >
+                            <span>View on OSM ↗</span>
+                          </a>
+                        )}
+                      </div>
+
+                      <div className="grid-2" style={{ gap: '6px', fontSize: '0.72rem' }}>
+                        <div style={{ background: '#121214', padding: '5px 8px', borderRadius: '6px', border: '1px solid #27272a' }}>
+                          <span style={{ color: '#71717a' }}>🛣️ Road: </span>
+                          <strong style={{ color: '#fff' }}>{geoDetails.road || geoDetails.primary_landmark || 'Identified Street'}</strong>
+                        </div>
+                        <div style={{ background: '#121214', padding: '5px 8px', borderRadius: '6px', border: '1px solid #27272a' }}>
+                          <span style={{ color: '#71717a' }}>🏛️ Sector / Area: </span>
+                          <strong style={{ color: '#fff' }}>{geoDetails.suburb || geoDetails.district || 'Municipal Sector'}</strong>
+                        </div>
+                        <div style={{ background: '#121214', padding: '5px 8px', borderRadius: '6px', border: '1px solid #27272a' }}>
+                          <span style={{ color: '#71717a' }}>🏙️ City & State: </span>
+                          <strong style={{ color: '#fff' }}>{geoDetails.city || 'Delhi'}, {geoDetails.state || 'DL'}</strong>
+                        </div>
+                        <div style={{ background: '#121214', padding: '5px 8px', borderRadius: '6px', border: '1px solid #27272a' }}>
+                          <span style={{ color: '#71717a' }}>📮 Postal PIN: </span>
+                          <strong style={{ color: '#00E6B4' }}>{geoDetails.postcode || '110001'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Interactive Leaflet Pinpoint Mini-Map */}
+                  {manualLat && manualLon && (
+                    <div style={{ marginTop: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#a1a1aa', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Globe size={11} color="#00E6B4" /> Interactive Pinpoint Map (Click to adjust pothole pin)
+                        </span>
+                        <span style={{ fontSize: '0.66rem', color: '#00E6B4', fontFamily: 'monospace' }}>
+                          {parseFloat(manualLat).toFixed(5)}°, {parseFloat(manualLon).toFixed(5)}°
+                        </span>
+                      </div>
+                      <div 
+                        ref={miniMapContainerRef} 
+                        style={{ 
+                          height: '135px', 
+                          width: '100%', 
+                          borderRadius: '8px', 
+                          overflow: 'hidden', 
+                          border: '1px solid rgba(0, 230, 180, 0.35)',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                          cursor: 'crosshair'
+                        }} 
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1150,21 +1306,42 @@ export default function AIDetectionView({ userRole = 'public', user, onNavigateT
                 </div>
               </div>
 
-              <div style={{ background: '#18181b', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-muted)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '0.82rem', color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <MapPin size={14} color="#F59E0B" /> Location / Landmark:
+              <div style={{ background: '#18181b', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-muted)', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', gap: '8px' }}>
+                  <span style={{ fontSize: '0.82rem', color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    <MapPin size={15} color="#00E6B4" /> OpenStreetMap Landmark:
                   </span>
-                  <span style={{ fontWeight: 600, color: '#00E6B4', fontSize: '0.85rem' }}>
-                    {detectionResult.landmark_name || 'Detected Hazard'}
+                  <span style={{ fontWeight: 700, color: '#00E6B4', fontSize: '0.85rem', textAlign: 'right' }}>
+                    {detectionResult.landmark_name || 'Detected Road Hazard'}
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', color: '#71717a' }}>GPS Coordinates & Source:</span>
-                  <span style={{ fontWeight: 600, color: '#fff', fontSize: '0.82rem' }}>
-                    {detectionResult.gps.latitude.toFixed(4)}° N, {detectionResult.gps.longitude.toFixed(4)}° E ({detectionResult.location_source || 'Metadata'})
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.76rem', color: '#71717a' }}>GPS Coordinates & Fix:</span>
+                  <span style={{ fontWeight: 600, color: '#fff', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                    {detectionResult.gps.latitude.toFixed(6)}° N, {detectionResult.gps.longitude.toFixed(6)}° E ({detectionResult.location_source || 'OSM Verified'})
                   </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                  <a
+                    href={`https://www.openstreetmap.org/?mlat=${detectionResult.gps.latitude}&mlon=${detectionResult.gps.longitude}#map=18/${detectionResult.gps.latitude}/${detectionResult.gps.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: '0.72rem', color: '#38BDF8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Globe size={12} />
+                    <span>View on OpenStreetMap ↗</span>
+                  </a>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${detectionResult.gps.latitude},${detectionResult.gps.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: '0.72rem', color: '#00E6B4', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Navigation size={12} />
+                    <span>Google Maps Directions ↗</span>
+                  </a>
                 </div>
               </div>
 

@@ -377,50 +377,114 @@ def health_check():
 def get_weather(lat: float = Query(28.6139), lon: float = Query(77.2090)):
     return fetch_live_weather(lat, lon)
 
-def reverse_geocode_coords(lat: float, lon: float) -> str:
-    """Reverse geocode coordinates to a clean, high-precision street address using OpenStreetMap Nominatim with rich address details."""
+def reverse_geocode_details(lat: float, lon: float) -> dict:
+    """
+    Reverse geocodes coordinates to a hyper-precise, granular address hierarchy
+    using OpenStreetMap Nominatim API (with zoom=18 for exact road and building level precision).
+    """
     try:
         import requests
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1"
-        res = requests.get(url, headers={"User-Agent": "RoadGuardianAI/2.0-GeoPrecise"}, timeout=4)
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1&namedetails=1"
+        headers = {
+            "User-Agent": "RoadGuardianAI-HighPrecision/2.0 (precision-geo@roadguardian.gov)",
+            "Accept-Language": "en"
+        }
+        res = requests.get(url, headers=headers, timeout=7)
         if res.status_code == 200:
             data = res.json()
-            if "address" in data:
-                addr = data["address"]
-                poi = addr.get("amenity") or addr.get("building") or addr.get("shop") or addr.get("office") or addr.get("tourism") or addr.get("landmark")
-                house_num = addr.get("house_number")
-                road = addr.get("road") or addr.get("pedestrian") or addr.get("street") or addr.get("path") or addr.get("footway")
-                suburb = addr.get("suburb") or addr.get("neighbourhood") or addr.get("quarter") or addr.get("residential") or addr.get("block") or addr.get("sector") or addr.get("subdivision")
-                district = addr.get("city_district") or addr.get("subdistrict") or addr.get("district") or addr.get("county")
-                city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality")
-                state = addr.get("state")
-                pincode = addr.get("postcode")
-                
-                parts = []
-                if poi: parts.append(str(poi).strip())
-                if house_num and road: parts.append(f"{house_num} {road}".strip())
-                elif road: parts.append(str(road).strip())
-                if suburb and str(suburb).strip() not in parts: parts.append(str(suburb).strip())
-                if district and str(district).strip() not in parts and district != city: parts.append(str(district).strip())
-                if city and str(city).strip() not in parts: parts.append(str(city).strip())
-                if state and str(state).strip() not in parts: parts.append(str(state).strip())
-                if pincode: parts.append(f"PIN: {str(pincode).strip()}")
-                
-                if parts:
-                    return ", ".join(parts)
-            if "display_name" in data:
-                return str(data["display_name"])
-    except Exception as ex:
-        print(f"[Reverse Geocode Warning]: {ex}")
+            addr = data.get("address", {})
+            
+            poi = (
+                addr.get("amenity") or addr.get("building") or addr.get("shop") or 
+                addr.get("office") or addr.get("tourism") or addr.get("leisure") or 
+                addr.get("historic") or addr.get("landmark") or addr.get("junction") or
+                addr.get("highway") or addr.get("railway") or addr.get("hospital") or
+                addr.get("school")
+            )
+            house_num = addr.get("house_number")
+            road = (
+                addr.get("road") or addr.get("pedestrian") or addr.get("street") or 
+                addr.get("avenue") or addr.get("path") or addr.get("footway")
+            )
+            suburb = (
+                addr.get("suburb") or addr.get("neighbourhood") or addr.get("quarter") or 
+                addr.get("residential") or addr.get("block") or addr.get("sector") or 
+                addr.get("subdivision") or addr.get("hamlet")
+            )
+            district = addr.get("city_district") or addr.get("subdistrict") or addr.get("district") or addr.get("county")
+            city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality")
+            state = addr.get("state")
+            postcode = addr.get("postcode")
+            country = addr.get("country")
 
-    return f"Road Segment ({lat:.4f}° N, {lon:.4f}° E)"
+            parts = []
+            if poi: parts.append(str(poi).strip())
+            if house_num and road: parts.append(f"#{house_num}, {road}".strip())
+            elif road: parts.append(str(road).strip())
+            if suburb and str(suburb).strip() not in parts: parts.append(str(suburb).strip())
+            if district and str(district).strip() not in parts and district != city: parts.append(str(district).strip())
+            if city and str(city).strip() not in parts: parts.append(str(city).strip())
+            if state and str(state).strip() not in parts: parts.append(str(state).strip())
+            if postcode: parts.append(f"PIN: {str(postcode).strip()}")
+
+            formatted_address = ", ".join(parts) if parts else data.get("display_name", f"Road Segment ({lat:.6f}°, {lon:.6f}°)")
+            
+            # Short prominent landmark
+            short_parts = []
+            if poi: short_parts.append(str(poi).strip())
+            if road: short_parts.append(str(road).strip())
+            if suburb and str(suburb).strip() not in short_parts: short_parts.append(str(suburb).strip())
+            elif city and str(city).strip() not in short_parts: short_parts.append(str(city).strip())
+            primary_landmark = ", ".join(short_parts) if short_parts else (road or suburb or formatted_address.split(',')[0])
+
+            return {
+                "success": True,
+                "formatted_address": formatted_address,
+                "primary_landmark": primary_landmark,
+                "poi": poi,
+                "road": road,
+                "house_number": house_num,
+                "suburb": suburb,
+                "district": district,
+                "city": city,
+                "state": state,
+                "postcode": postcode,
+                "country": country,
+                "display_name": data.get("display_name", formatted_address),
+                "latitude": lat,
+                "longitude": lon,
+                "osm_id": data.get("osm_id"),
+                "osm_type": data.get("osm_type")
+            }
+    except Exception as ex:
+        print(f"[Nominatim Reverse Geocode Warning]: {ex}")
+
+    fallback_str = f"Road Segment ({lat:.6f}° N, {lon:.6f}° E)"
+    return {
+        "success": False,
+        "formatted_address": fallback_str,
+        "primary_landmark": fallback_str,
+        "poi": None,
+        "road": None,
+        "suburb": None,
+        "city": None,
+        "latitude": lat,
+        "longitude": lon
+    }
+
+def reverse_geocode_coords(lat: float, lon: float) -> str:
+    """Reverse geocode coordinates to a clean, high-precision street address using OpenStreetMap Nominatim with rich address details."""
+    details = reverse_geocode_details(lat, lon)
+    return details.get("formatted_address") or f"Road Segment ({lat:.6f}° N, {lon:.6f}° E)"
 
 @app.get("/api/location/reverse-geocode")
 def get_reverse_geocode(lat: float = Query(...), lon: float = Query(...)):
-    address = reverse_geocode_coords(lat, lon)
+    details = reverse_geocode_details(lat, lon)
     return {
-        "success": True,
-        "address": address,
+        "success": details.get("success", False),
+        "address": details.get("formatted_address"),
+        "primary_landmark": details.get("primary_landmark"),
+        "details": details,
         "latitude": lat,
         "longitude": lon
     }
@@ -441,6 +505,7 @@ async def report_hazard_endpoint(
     resolved_addr = address or reverse_geocode_coords(lat, lon)
     
     saved_filename = image_name or "report_manual.jpg"
+    auth_info = None
     if image:
         try:
             img_contents = await image.read()
@@ -450,24 +515,81 @@ async def report_hazard_endpoint(
             out_path = potholes_dir / saved_filename
             with open(out_path, "wb") as f:
                 f.write(img_contents)
+
+            # 5-Layer Forensic Authenticity Gate
+            try:
+                historical_hashes = get_historical_phashes()
+                auth_info = analyze_photo_authenticity(
+                    img_contents,
+                    filename=saved_filename,
+                    manual_gps=(lat, lon),
+                    historical_hashes=historical_hashes
+                )
+                if auth_info:
+                    score = auth_info.get("authenticity_score", 100.0)
+                    status_code = auth_info.get("status_code", "")
+                    if score < 40.0 or status_code == "high_risk":
+                        threats = auth_info.get("threat_reasons", [])
+                        reason = threats[0] if threats else f"High Risk Tampered Image ({score}/100)"
+                        raise HTTPException(
+                            status_code=422,
+                            detail={
+                                "rejected": True,
+                                "reason": reason,
+                                "authenticity_score": score,
+                                "message": "⚠️ This image was flagged as suspicious or tampered by the Authenticity Engine and cannot be registered."
+                            }
+                        )
+            except HTTPException:
+                raise
+            except Exception as auth_err:
+                print(f"[Manual Report Authenticity Warning]: {auth_err}")
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"[Manual Report Image Save Error]: {e}")
             
-    # Save the manual hazard report to the database
+    # Save the manual hazard report to the database with authenticity scores
+    db_report_id = None
     try:
         try:
             from .db_manager import insert_detection
         except ImportError:
             from db_manager import insert_detection
-        insert_detection(
+        
+        phash_val = auth_info.get("phash", "") if auth_info else ""
+        auth_score_val = auth_info.get("authenticity_score") if auth_info else 100.0
+
+        success, msg, db_report_id = insert_detection(
             image_name=saved_filename,
             latitude=str(lat),
             longitude=str(lon),
             severity=severity or "High",
             confidence=confidence or 0.88,
             user_id=current_user["id"],
-            landmark_name=resolved_addr
+            user_email=current_user.get("email", ""),
+            reporter_email=current_user.get("email", ""),
+            phash=phash_val,
+            authenticity_score=auth_score_val,
+            landmark_name=resolved_addr,
+            description="Manual citizen road hazard report with 5-layer forensic verification.",
+            damage_type="Pothole",
+            status="AI_VERIFIED"
         )
+
+        if auth_info:
+            try:
+                log_authenticity_audit(
+                    image_name=saved_filename,
+                    phash=phash_val,
+                    authenticity_score=auth_score_val,
+                    status=auth_info.get("status", "HIGHLY AUTHENTIC"),
+                    status_code=auth_info.get("status_code", "highly_authentic"),
+                    bullet_summary=auth_info.get("bullet_summary", []),
+                    report_dict=auth_info
+                )
+            except Exception as audit_err:
+                print(f"[Manual Report Authenticity Audit Log Error]: {audit_err}")
     except Exception as e:
         print(f"[Manual Report DB Sync Error]: {e}")
         
@@ -478,7 +600,8 @@ async def report_hazard_endpoint(
         "latitude": lat,
         "longitude": lon,
         "severity": severity,
-        "report_id": f"REP-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        "authenticity": auth_info,
+        "report_id": f"RG-{1000 + (db_report_id or 1)}"
     }
 
 
