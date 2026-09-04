@@ -1,9 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ShieldCheck, Upload, RefreshCw, AlertTriangle, CheckCircle2, 
   HelpCircle, Eye, Sliders, FileText, Copy, Check, MapPin, 
   Clock, Camera, Cpu, Image as ImageIcon, Sparkles, Layers,
-  ExternalLink, ArrowRight, ShieldAlert, Info, GitMerge, List
+  ExternalLink, ArrowRight, ShieldAlert, Info, GitMerge, List, Database
 } from 'lucide-react';
 import AuthenticityFlowchart from './AuthenticityFlowchart';
 
@@ -21,13 +21,47 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
   const [useDeviceGps, setUseDeviceGps] = useState(false);
+  const [dbList, setDbList] = useState([]);
 
   const fileInputRef = useRef(null);
 
+  // Fetch DB reports for fast testing
+  useEffect(() => {
+    fetch('/api/reports/my-reports?role=admin')
+      .then((res) => res.json())
+      .then((data) => {
+        const reps = (data.reports || []).filter((r) => r.image_name);
+        setDbList(reps);
+      })
+      .catch((err) => console.error('Error loading DB reports list in forensics:', err));
+  }, []);
+
+  const loadFromDbReport = (rep) => {
+    if (!rep || !rep.image_name) return;
+    const url = `/potholes/${rep.image_name.replace(/^\/?(potholes|api\/images)\//, '')}`;
+    setPreviewUrl(url);
+    setReport(null);
+    setErrorMsg(null);
+    setActiveVisualTab('original');
+    fetch(url)
+      .then((res) => res.blob())
+      .then((blob) => {
+        const file = new File([blob], rep.image_name, { type: blob.type || 'image/jpeg' });
+        setSelectedFile(file);
+        if (rep.latitude && rep.longitude) {
+          setManualLat(String(rep.latitude));
+          setManualLon(String(rep.longitude));
+        }
+      })
+      .catch((err) => console.error('Error fetching DB photo blob:', err));
+  };
+
   // Preload image if passed via props
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialImageUrl) {
       setPreviewUrl(initialImageUrl);
+      setReport(null);
+      setErrorMsg(null);
       fetch(initialImageUrl)
         .then(res => res.blob())
         .then(blob => {
@@ -319,16 +353,46 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
             Upload Photograph for Forensic Analysis
           </h3>
 
-          {/* Preset Buttons for immediate testing */}
+          {/* Preset Buttons & DB Incident Selector */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.72rem', color: '#71717a' }}>Quick Presets:</span>
+            {dbList.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginRight: '6px' }}>
+                <Database size={14} color="#00E6B4" />
+                <select
+                  className="form-select"
+                  style={{
+                    fontSize: '0.72rem',
+                    padding: '4px 8px',
+                    maxWidth: '220px',
+                    background: '#09090b',
+                    color: '#00E6B4',
+                    border: '1px solid rgba(0, 230, 180, 0.3)',
+                    borderRadius: '6px'
+                  }}
+                  onChange={(e) => {
+                    const found = dbList.find(r => r.id === Number(e.target.value));
+                    if (found) loadFromDbReport(found);
+                  }}
+                  defaultValue=""
+                >
+                  <option value="" disabled>Load DB Incident Photo ({dbList.length})...</option>
+                  {dbList.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      #{r.report_id || `RG-${r.id}`} — {r.landmark_name || 'Road'} (Conf: {Math.round((r.confidence || 0.88) * 100)}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <span style={{ fontSize: '0.72rem', color: '#71717a' }}>Presets:</span>
             <button 
               className="btn-secondary" 
               onClick={() => loadDemoPreset('authentic')}
               style={{ fontSize: '0.72rem', padding: '4px 8px' }}
               title="Generate a genuine camera road photo with natural texture"
             >
-              📷 Authentic Road
+              📷 Authentic
             </button>
             <button 
               className="btn-secondary" 
@@ -336,7 +400,7 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
               style={{ fontSize: '0.72rem', padding: '4px 8px' }}
               title="Simulate re-photographed monitor screen with Moiré grid"
             >
-              🖥️ Screen Photo
+              🖥️ Screen
             </button>
             <button 
               className="btn-secondary" 
@@ -344,7 +408,7 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
               style={{ fontSize: '0.72rem', padding: '4px 8px' }}
               title="Simulate overly smooth AI generated road surface"
             >
-              🤖 Synthetic / AI
+              🤖 Synthetic
             </button>
             <button 
               className="btn-secondary" 
@@ -352,7 +416,7 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
               style={{ fontSize: '0.72rem', padding: '4px 8px' }}
               title="Simulate copy-pasted pothole image editing"
             >
-              ✂️ Spliced ELA
+              ✂️ Spliced
             </button>
           </div>
         </div>

@@ -6,7 +6,7 @@ export default function Sidebar({ activeTab, setActiveTab, userRole, onSelectRol
     { id: 'digital-twin', label: 'Digital Twin GIS Map', icon: Map, badge: 'GIS' },
     { id: 'traffic-simulator', label: 'SUMO Traffic Simulator', icon: Cpu, badge: 'SUMO Sim' },
     { id: 'my-reports', label: 'Reports & Municipal Audit', icon: ClipboardList, badge: 'Audit Hub' },
-    { id: 'risk-calculator', label: 'Risk Engine Evaluator', icon: ShieldAlert, badge: 'Layer 2' },
+    { id: 'risk-calculator', label: 'Policy Simulator & Forensics', icon: ShieldAlert, badge: 'Lab' },
     { id: 'public-feed', label: 'Public Feed & Incident History', icon: History, badge: 'Telemetry' },
   ];
 

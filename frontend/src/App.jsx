@@ -187,8 +187,8 @@ export default function App() {
         };
       case 'risk-calculator':
         return {
-          title: 'Multi-Factor Road Risk Evaluator',
-          subtitle: 'Dynamic 0-100 risk scoring algorithm combining perception, vehicle speed, weather, and school proximity'
+          title: 'Policy Simulator & Forensics Lab',
+          subtitle: 'Interactive what-if risk scenario modeling (weather, speed, school zones) & 5-layer forensic image gate diagnostics'
         };
       case 'municipal-report':
         return {

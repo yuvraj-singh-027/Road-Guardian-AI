@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Gauge, Sliders, CheckCircle2, Sparkles, BarChart2, ShieldCheck } from 'lucide-react';
+import { ShieldAlert, Gauge, Sliders, CheckCircle2, Sparkles, BarChart2, ShieldCheck, Database, Image as ImageIcon, ExternalLink, ArrowRight, RefreshCw, MapPin } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, CartesianGrid } from 'recharts';
 import AuthenticityVerifierView from './AuthenticityVerifierView';
 
 export default function RiskCalculatorView() {
   const [subTab, setSubTab] = useState('risk-calculator');
+  const [sourceMode, setSourceMode] = useState('database'); // 'database' | 'manual'
+  const [dbReports, setDbReports] = useState([]);
+  const [selectedReportId, setSelectedReportId] = useState(null);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [lockConfidenceToPhoto, setLockConfidenceToPhoto] = useState(true);
+
   const [params, setParams] = useState({
     severity: 'High',
     confidence: 0.88,
@@ -17,6 +23,54 @@ export default function RiskCalculatorView() {
   });
 
   const [riskResult, setRiskResult] = useState(null);
+
+  // Fetch real incidents from the database on mount
+  useEffect(() => {
+    setLoadingReports(true);
+    fetch('/api/reports/my-reports?role=admin')
+      .then((res) => res.json())
+      .then((data) => {
+        const reps = (data.reports || []).filter((r) => r.image_name);
+        setDbReports(reps);
+        if (reps.length > 0) {
+          const first = reps[0];
+          setSelectedReportId(first.id);
+          applyReportParams(first);
+        }
+      })
+      .catch((err) => console.error('Error fetching DB reports:', err))
+      .finally(() => setLoadingReports(false));
+  }, []);
+
+  const applyReportParams = (report) => {
+    if (!report) return;
+    const repConf = report.confidence != null ? Number(report.confidence) : 0.88;
+    const repSev = report.severity || 'Medium';
+    const repCount = report.pothole_count ? Number(report.pothole_count) : 1;
+    const repRoad = report.road_type || 'Arterial Road';
+
+    setParams((prev) => ({
+      ...prev,
+      confidence: repConf,
+      severity: repSev,
+      damage_count: repCount,
+      road_type: repRoad,
+    }));
+  };
+
+  const handleSelectReport = (reportId) => {
+    setSelectedReportId(reportId);
+    const found = dbReports.find((r) => r.id === Number(reportId));
+    if (found) {
+      applyReportParams(found);
+      setLockConfidenceToPhoto(true);
+    }
+  };
+
+  const currentReport = dbReports.find((r) => r.id === Number(selectedReportId)) || dbReports[0];
+  const activeImageUrl = currentReport?.image_name
+    ? `/potholes/${currentReport.image_name.replace(/^\/?(potholes|api\/images)\//, '')}`
+    : null;
 
   const calculateRisk = () => {
     fetch('/api/risk/calculate', {
@@ -37,7 +91,7 @@ export default function RiskCalculatorView() {
   const breakdownChartData = Object.entries(riskResult?.breakdown || {}).map(([key, val]) => ({
     factor: key.replace(' (35%)', '').replace(' (20%)', '').replace(' (15%)', '').replace(' (10%)', ''),
     points: val,
-    color: '#00E6B4'
+    color: '#00E6B4',
   }));
 
   return (
@@ -59,11 +113,11 @@ export default function RiskCalculatorView() {
             fontWeight: subTab === 'risk-calculator' ? 700 : 500,
             fontSize: '0.84rem',
             cursor: 'pointer',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
           }}
         >
           <ShieldAlert size={16} color={subTab === 'risk-calculator' ? '#00E6B4' : '#71717a'} />
-          <span>Multi-Factor Risk Score Engine</span>
+          <span>What-If Risk Policy Simulator</span>
         </button>
 
         <button
@@ -80,26 +134,221 @@ export default function RiskCalculatorView() {
             fontWeight: subTab === 'authenticity' ? 700 : 500,
             fontSize: '0.84rem',
             cursor: 'pointer',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
           }}
         >
           <ShieldCheck size={16} color={subTab === 'authenticity' ? '#00E6B4' : '#71717a'} />
-          <span>Image Authenticity & Forensics</span>
+          <span>Image Authenticity & Forensics Lab</span>
+          {activeImageUrl && (
+            <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(0,230,180,0.2)', color: '#00E6B4' }}>
+              Photo Loaded
+            </span>
+          )}
         </button>
       </div>
 
       {subTab === 'authenticity' ? (
-        <AuthenticityVerifierView />
+        <AuthenticityVerifierView initialImageUrl={activeImageUrl} />
       ) : (
-      <div className="grid-2" style={{ gap: '20px' }}>
+      <>
+        {/* Explanatory Policy Sandbox Notice */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '10px 14px',
+          borderRadius: '8px',
+          background: 'rgba(0, 230, 180, 0.06)',
+          border: '1px solid rgba(0, 230, 180, 0.2)',
+          fontSize: '0.78rem',
+          color: '#cbd5e1',
+        }}>
+          <Sparkles size={16} color="#00E6B4" style={{ flexShrink: 0 }} />
+          <span><strong>Municipal Policy Sandbox:</strong> Live incoming reports are scored automatically. Use this simulator to test how weather, speed limits, and school zones impact priority weighting and emergency repair SLAs.</span>
+        </div>
+
+        {/* DATA SOURCE SELECTOR: Real DB Incident Photo vs Manual */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          background: '#18181b',
+          padding: '12px 16px',
+          borderRadius: '12px',
+          border: '1px solid #27272a',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e4e4e7' }}>Perception Input Source:</span>
+            <div style={{ display: 'flex', background: '#09090b', padding: '3px', borderRadius: '8px', border: '1px solid #27272a' }}>
+              <button
+                onClick={() => {
+                  setSourceMode('database');
+                  if (currentReport) applyReportParams(currentReport);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: sourceMode === 'database' ? 'rgba(0, 230, 180, 0.2)' : 'transparent',
+                  color: sourceMode === 'database' ? '#00E6B4' : '#71717a',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Database size={14} /> Stored DB Incident Photos ({dbReports.length})
+              </button>
+              <button
+                onClick={() => setSourceMode('manual')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: sourceMode === 'manual' ? 'rgba(0, 230, 180, 0.2)' : 'transparent',
+                  color: sourceMode === 'manual' ? '#00E6B4' : '#71717a',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Sliders size={14} /> Freeform Manual Sliders
+              </button>
+            </div>
+          </div>
+
+          {sourceMode === 'database' && dbReports.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '280px', justifyContent: 'flex-end' }}>
+              <label style={{ fontSize: '0.78rem', color: '#a1a1aa' }}>Select Incident:</label>
+              <select
+                className="form-select"
+                style={{ maxWidth: '380px', fontSize: '0.8rem', padding: '6px 10px', background: '#09090b' }}
+                value={selectedReportId || ''}
+                onChange={(e) => handleSelectReport(e.target.value)}
+              >
+                {dbReports.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    #{r.report_id || `RG-${r.id}`} — {r.landmark_name || 'Municipal Road'} (AI Conf: {Math.round((r.confidence || 0.88) * 100)}% | {r.severity || 'Med'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* REAL IMAGE PERCEPTION CARD (If in Database Mode) */}
+        {sourceMode === 'database' && currentReport && activeImageUrl && (
+          <div style={{
+            background: 'rgba(24, 24, 27, 0.8)',
+            border: '1.5px solid rgba(0, 230, 180, 0.25)',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: '18px',
+            flexWrap: 'wrap',
+          }}>
+            {/* Image Thumbnail */}
+            <div style={{ position: 'relative', width: '130px', height: '90px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #3f3f46', flexShrink: 0, background: '#000' }}>
+              <img
+                src={activeImageUrl}
+                alt="Stored Road Hazard"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <span style={{
+                position: 'absolute',
+                bottom: '4px',
+                right: '4px',
+                background: 'rgba(0,0,0,0.85)',
+                color: '#00E6B4',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: '4px',
+              }}>
+                #{currentReport.report_id || `RG-${currentReport.id}`}
+              </span>
+            </div>
+
+            {/* Extracted Metrics Badges */}
+            <div style={{ flex: 1, minWidth: '260px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.94rem', color: '#fff' }}>
+                  {currentReport.landmark_name || 'Municipal Roadway Distress'}
+                </span>
+                <span style={{
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  background: 'rgba(0, 230, 180, 0.15)',
+                  color: '#00E6B4',
+                  border: '1px solid rgba(0, 230, 180, 0.3)',
+                }}>
+                  🎯 AI Vision Confidence: {Math.round((currentReport.confidence || 0.88) * 100)}%
+                </span>
+                <span style={{
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38BDF8',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                }}>
+                  🛡️ Forensic Score: {currentReport.authenticity_score != null ? `${Math.round(currentReport.authenticity_score)}/100` : '85/100'}
+                </span>
+              </div>
+
+              <div style={{ fontSize: '0.76rem', color: '#a1a1aa', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                <span><strong>Cavity Severity:</strong> <span style={{ color: '#F59E0B' }}>{currentReport.severity || 'Medium'}</span></span>
+                <span><strong>Damage Count:</strong> <span style={{ color: '#fff' }}>{currentReport.pothole_count || 1} Pothole(s)</span></span>
+                <span><strong>Road Type:</strong> <span style={{ color: '#fff' }}>{currentReport.road_type || 'Arterial Road'}</span></span>
+              </div>
+            </div>
+
+            {/* Inspect in Forensics Lab Action */}
+            <button
+              onClick={() => setSubTab('authenticity')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                background: 'rgba(0, 230, 180, 0.12)',
+                border: '1px solid rgba(0, 230, 180, 0.35)',
+                color: '#00E6B4',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <ShieldCheck size={16} />
+              <span>Inspect in Forensics Lab</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
+
+        <div className="grid-2" style={{ gap: '20px' }}>
         {/* Controls Panel */}
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ fontSize: '1.05rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sliders size={18} color="#00E6B4" /> Multi-Factor Risk Parameters
+              <Sliders size={18} color="#00E6B4" /> What-If Parameter Modeling
             </h3>
             <span style={{ fontSize: '0.72rem', background: '#18181b', color: '#00E6B4', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(0,230,180,0.2)' }}>
-              Layer 2 Engine
+              {sourceMode === 'database' ? 'Linked to Stored Photo' : 'Freeform Simulation'}
             </span>
           </div>
 
@@ -120,7 +369,14 @@ export default function RiskCalculatorView() {
 
             <div className="form-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <label className="form-label" style={{ margin: 0 }}>AI Vision Confidence:</label>
+                <label className="form-label" style={{ margin: 0 }}>
+                  AI Vision Confidence:
+                  {sourceMode === 'database' && (
+                    <span style={{ fontSize: '0.68rem', color: '#00E6B4', marginLeft: '6px' }}>
+                      (From Photo)
+                    </span>
+                  )}
+                </label>
                 <span style={{ fontSize: '0.74rem', background: 'rgba(0, 230, 180, 0.15)', color: '#00E6B4', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid rgba(0, 230, 180, 0.3)' }}>
                   {Math.round(params.confidence * 100)}%
                 </span>
@@ -297,6 +553,7 @@ export default function RiskCalculatorView() {
           )}
         </div>
       </div>
+      </>
       )}
     </div>
   );
