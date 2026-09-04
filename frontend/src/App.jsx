@@ -375,7 +375,7 @@ export default function App() {
           userRole === 'admin' ? <RiskCalculatorView initialSubTab="risk-calculator" /> : renderRestrictedAccessNotice()
         )}
         {activeTab === 'n8n-automation' && (
-          <N8nAutomationView user={user} />
+          userRole === 'admin' ? <N8nAutomationView user={user} /> : renderRestrictedAccessNotice()
         )}
       </div>
 

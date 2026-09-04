@@ -1410,7 +1410,57 @@ except Exception as e:
     print(f"[DB AUTO-INIT WARNING]: {e}")
 
 
+def get_all_sqlite_detections() -> List[Dict[str, Any]]:
+    """
+    Directly fetches all detections from local SQLite road_guardian.db database
+    for complete n8n workflow and Excel synchronization.
+    """
+    possible_paths = [
+        Path(__file__).resolve().parent / "road_guardian.db",
+        Path(__file__).resolve().parent.parent / "road_guardian.db",
+        Path.cwd() / "backend" / "road_guardian.db",
+        Path.cwd() / "road_guardian.db"
+    ]
+    db_path = None
+    for p in possible_paths:
+        if p.exists():
+            db_path = p
+            break
+    if not db_path:
+        return []
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.execute("SELECT * FROM pothole_detections ORDER BY id DESC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        results = []
+        for r in rows:
+            rec_id = r.get("id")
+            eff_email = r.get("reporter_email") or r.get("user_email") or r.get("user_gmail") or "citizen@roadguardian.gov"
+            results.append({
+                "id": rec_id,
+                "report_id": f"RG-{1000 + rec_id}",
+                "landmark_name": r.get("landmark_name") or "Municipal Road Segment",
+                "severity": r.get("severity") or "Medium",
+                "risk_score": float(r.get("risk_score") or 50.0),
+                "confidence": float(r.get("confidence") or 0.85),
+                "status": r.get("status") or "AI_VERIFIED",
+                "damage_type": r.get("damage_type") or "Pothole",
+                "latitude": float(r.get("lat_numeric") or r.get("latitude") or 28.6139),
+                "longitude": float(r.get("lon_numeric") or r.get("longitude") or 77.2090),
+                "user_name": r.get("user_name") or "Citizen Contributor",
+                "reporter_email": eff_email,
+                "user_email": eff_email,
+                "created_at": str(r.get("created_at") or r.get("time") or ""),
+                "updated_at": str(r.get("updated_at") or r.get("time") or "")
+            })
+        return results
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     init_db()
     status = get_db_status()
     print(f"[DB] Digital Twin & Urban Utilization Database Engine Initialized: {status}")
+

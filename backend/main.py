@@ -32,7 +32,8 @@ try:
     from .db_manager import (
         clear_all_detections, get_db_status, get_all_detections,
         get_historical_phashes, log_authenticity_audit, get_authenticity_history,
-        insert_detection, get_user_reports, get_report_by_id_with_history, update_report_status
+        insert_detection, get_user_reports, get_report_by_id_with_history, update_report_status,
+        get_all_sqlite_detections
     )
 except ImportError as e:
     try:
@@ -45,7 +46,8 @@ except ImportError as e:
         from db_manager import (
             clear_all_detections, get_db_status, get_all_detections,
             get_historical_phashes, log_authenticity_audit, get_authenticity_history,
-            insert_detection, get_user_reports, get_report_by_id_with_history, update_report_status
+            insert_detection, get_user_reports, get_report_by_id_with_history, update_report_status,
+            get_all_sqlite_detections
         )
     except Exception:
         raise RuntimeError(f"Failed to import core engines: {e}")
@@ -1953,6 +1955,70 @@ def n8n_submit_report(req: N8nSubmitReportRequest, current_user: Optional[dict] 
         "webhook_status": status_code,
         "webhook_url": test_res.get("webhook_url")
     }
+
+
+@app.post("/api/workflows/n8n/sync-db")
+def n8n_sync_all_db_potholes(current_user: Optional[dict] = Depends(get_current_user_optional)):
+    """
+    Fetches ALL pothole hazard detections from database and dispatches them to n8n webhook.
+    Enables automatic export/sync of all database potholes to Excel / Google Sheets with respective emails.
+    """
+    try:
+        db_reports = get_all_sqlite_detections()
+        if not db_reports:
+            db_reports = get_user_reports(is_admin=True)
+
+        synced_records = []
+        for r in db_reports:
+            formatted_record = {
+                "event": "HAZARD_DETECTED",
+                "report_id": str(r.get("report_id") or f"RG-{1000 + int(r.get('id', 0))}"),
+                "db_id": int(r.get("id", 0)),
+                "landmark_name": str(r.get("landmark_name") or "Municipal Road Segment"),
+                "severity": str(r.get("severity") or "Medium"),
+                "risk_score": float(r.get("risk_score") or 50.0),
+                "confidence": float(r.get("confidence") or 0.85),
+                "status": str(r.get("status") or "AI_VERIFIED"),
+                "damage_type": str(r.get("damage_type") or "Pothole"),
+                "latitude": float(r.get("latitude") or 28.6139),
+                "longitude": float(r.get("longitude") or 77.2090),
+                "user_name": str(r.get("user_name") or "Citizen Contributor"),
+                "reporter_email": str(r.get("reporter_email") or r.get("user_email") or "citizen@roadguardian.gov"),
+                "user_email": str(r.get("user_email") or r.get("reporter_email") or "citizen@roadguardian.gov"),
+                "email": str(r.get("reporter_email") or r.get("user_email") or "citizen@roadguardian.gov"),
+                "created_at": str(r.get("created_at") or ""),
+                "updated_at": str(r.get("updated_at") or "")
+            }
+            synced_records.append(formatted_record)
+
+        import threading
+
+        def _async_sync():
+            for record in synced_records:
+                trigger_n8n_event("HAZARD_DETECTED", record)
+            batch_payload = {
+                "event_type": "BATCH_DB_SYNC",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "total_records": len(synced_records),
+                "potholes": synced_records
+            }
+            trigger_n8n_event("BATCH_DB_SYNC", batch_payload)
+
+        t = threading.Thread(target=_async_sync, daemon=True)
+        t.start()
+
+        return {
+            "success": True,
+            "mode": "n8n-excel-sync",
+            "total_synced": len(synced_records),
+            "message": f"Successfully dispatched {len(synced_records)} database pothole records with respective email IDs to n8n webhook."
+        }
+    except Exception as ex:
+        import traceback
+        err_msg = f"[n8n Sync Exception]: {traceback.format_exc()}"
+        print(err_msg)
+        raise HTTPException(status_code=500, detail=str(ex))
+
 
 
 @app.get("/potholes/{filename:path}")

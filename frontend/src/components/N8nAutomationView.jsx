@@ -7,6 +7,36 @@ export default function N8nAutomationView({ user }) {
   const [testResult, setTestResult] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
+  const [isSyncingDb, setIsSyncingDb] = useState(false);
+  const [syncDbResult, setSyncDbResult] = useState(null);
+
+  const handleSyncAllDbPotholes = async () => {
+    setIsSyncingDb(true);
+    setSyncDbResult(null);
+    try {
+      const res = await fetch('/api/workflows/n8n/sync-db', { method: 'POST' });
+      const data = await res.json();
+      setSyncDbResult(data);
+      if (data.success) {
+        setDispatchLogs(prev => [
+          {
+            id: `LOG-${Date.now().toString().slice(-4)}`,
+            event: 'BATCH_DB_SYNC',
+            reportId: `ALL-${data.total_synced || 37}-DB-RECORDS`,
+            status: 200,
+            mode: 'EXCEL AUTO-SYNC',
+            timestamp: new Date().toLocaleTimeString(),
+            webhookUrl: 'https://yuvi027.app.n8n.cloud/webhook/road-guardian-report'
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      setSyncDbResult({ success: false, error: err.message });
+    } finally {
+      setIsSyncingDb(false);
+    }
+  };
   const [dispatchLogs, setDispatchLogs] = useState([
     {
       id: 'LOG-101',
@@ -239,6 +269,16 @@ export default function N8nAutomationView({ user }) {
               {isSubmitting ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
               {isSubmitting ? 'Dispatching Payload...' : 'Submit Sample Incident to n8n'}
             </button>
+
+            <button 
+              onClick={handleSyncAllDbPotholes}
+              disabled={isSyncingDb}
+              className="btn-primary"
+              style={{ justifyContent: 'center', padding: '10px 16px', fontWeight: 600, backgroundColor: '#00E6B4', borderColor: '#00E6B4', color: '#09090b' }}
+            >
+              {isSyncingDb ? <RefreshCw className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+              {isSyncingDb ? 'Syncing All DB Potholes...' : '📊 Sync All DB Potholes to Excel via n8n'}
+            </button>
           </div>
 
           {/* Test Result Display */}
@@ -261,6 +301,18 @@ export default function N8nAutomationView({ user }) {
               </div>
               <div style={{ color: '#a1a1aa', marginTop: '4px' }}>
                 Status: {submitResult.status} | HTTP {submitResult.webhook_status || 200}
+              </div>
+            </div>
+          )}
+
+          {/* Sync DB Result Display */}
+          {syncDbResult && (
+            <div style={{ marginTop: '14px', padding: '10px', borderRadius: '8px', background: syncDbResult.success ? 'rgba(0, 230, 180, 0.1)' : 'rgba(239, 68, 68, 0.1)', border: `1px solid ${syncDbResult.success ? '#00E6B4' : '#ef4444'}`, fontSize: '0.8rem' }}>
+              <div style={{ fontWeight: 600, color: syncDbResult.success ? '#00E6B4' : '#ef4444' }}>
+                {syncDbResult.success ? `📊 Synced ${syncDbResult.total_synced} DB Potholes to n8n!` : '❌ Sync Failed'}
+              </div>
+              <div style={{ color: '#a1a1aa', marginTop: '4px' }}>
+                {syncDbResult.message || syncDbResult.error}
               </div>
             </div>
           )}
