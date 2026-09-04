@@ -509,41 +509,77 @@ async def report_hazard_endpoint(
     if image:
         try:
             img_contents = await image.read()
-            potholes_dir = BASE_DIR / "potholes"
-            potholes_dir.mkdir(exist_ok=True)
-            saved_filename = f"report_{int(time.time())}_{image.filename or 'upload.jpg'}"
-            out_path = potholes_dir / saved_filename
-            with open(out_path, "wb") as f:
-                f.write(img_contents)
 
-            # 5-Layer Forensic Authenticity Gate
+            # 5-Layer Forensic Authenticity Gate (Evaluated before disk or DB persist)
             try:
                 historical_hashes = get_historical_phashes()
                 auth_info = analyze_photo_authenticity(
                     img_contents,
-                    filename=saved_filename,
+                    filename=image.filename or "upload.jpg",
                     manual_gps=(lat, lon),
                     historical_hashes=historical_hashes
                 )
                 if auth_info:
                     score = auth_info.get("authenticity_score", 100.0)
                     status_code = auth_info.get("status_code", "")
-                    if score < 40.0 or status_code == "high_risk":
+                    is_duplicate = bool(auth_info.get("checks_summary", {}).get("phash", {}).get("is_duplicate"))
+                    if score < 40.0 or status_code == "high_risk" or is_duplicate:
                         threats = auth_info.get("threat_reasons", [])
-                        reason = threats[0] if threats else f"High Risk Tampered Image ({score}/100)"
+                        reason = threats[0] if threats else ("Duplicate Pothole Incident Flagged" if is_duplicate else f"High Risk Tampered Image ({score}/100)")
                         raise HTTPException(
                             status_code=422,
                             detail={
                                 "rejected": True,
                                 "reason": reason,
                                 "authenticity_score": score,
-                                "message": "⚠️ This image was flagged as suspicious or tampered by the Authenticity Engine and cannot be registered."
+                                "message": "⚠️ This image was flagged as duplicate or tampered by the Authenticity Engine and cannot be registered in the database."
                             }
                         )
             except HTTPException:
                 raise
             except Exception as auth_err:
                 print(f"[Manual Report Authenticity Warning]: {auth_err}")
+
+            # Verify image depicts a real road surface with pothole damage
+            np_arr = np.frombuffer(img_contents, np.uint8)
+            img_bgr = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if img_bgr is not None:
+                try:
+                    from .road_vision import verify_road_surface, detect_road_potholes
+                except ImportError:
+                    from road_vision import verify_road_surface, detect_road_potholes
+
+                is_road, road_msg, _ = verify_road_surface(img_bgr)
+                if not is_road:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "rejected": True,
+                            "reason": f"No Valid Road: {road_msg}",
+                            "authenticity_score": 25.0,
+                            "message": f"🚫 Invalid Photo: This image does not depict an asphalt or concrete road surface ({road_msg})."
+                        }
+                    )
+
+                potholes_found, _, _, _ = detect_road_potholes(img_bgr)
+                if not potholes_found:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "rejected": True,
+                            "reason": "No Pothole Hazard Found on Road",
+                            "authenticity_score": 50.0,
+                            "message": "ℹ️ No Valid Road Hazard: A road surface was detected, but no structural pothole or pavement damage was found."
+                        }
+                    )
+
+            # Only save image to disk if authenticity & road pothole verification passed
+            potholes_dir = BASE_DIR / "potholes"
+            potholes_dir.mkdir(exist_ok=True)
+            saved_filename = f"report_{int(time.time())}_{image.filename or 'upload.jpg'}"
+            out_path = potholes_dir / saved_filename
+            with open(out_path, "wb") as f:
+                f.write(img_contents)
         except HTTPException:
             raise
         except Exception as e:
@@ -785,14 +821,15 @@ async def detect_image(
     if authenticity_info:
         score = authenticity_info.get("authenticity_score", 100.0)
         status_code = authenticity_info.get("status_code", "")
-        # Only flag if composite score falls into High Risk category (< 40)
-        if score < 40.0 or status_code == "high_risk":
+        is_duplicate = bool(authenticity_info.get("checks_summary", {}).get("phash", {}).get("is_duplicate"))
+        # Flag if score is below 40, status is high_risk, or duplicate image detected
+        if score < 40.0 or status_code == "high_risk" or is_duplicate:
             is_fake = True
             threats = authenticity_info.get("threat_reasons", [])
-            rejection_reason = threats[0] if threats else f"High Risk Tampered Image ({score}/100)"
+            rejection_reason = threats[0] if threats else ("Duplicate Pothole Incident Flagged" if is_duplicate else f"High Risk Tampered Image ({score}/100)")
 
     # ── AUTHENTICITY GATE ─────────────────────────────────────────────────────
-    # SUSPICIOUS images are STOPPED HERE — they never reach the YOLO detector.
+    # SUSPICIOUS / DUPLICATE images are STOPPED HERE — they never reach the YOLO detector.
     # This enforces the pipeline: Authenticity Engine → gate → YOLO (only trusted images).
     if is_fake:
         raise HTTPException(
@@ -801,8 +838,9 @@ async def detect_image(
                 "rejected": True,
                 "reason": rejection_reason,
                 "authenticity_score": authenticity_info.get("authenticity_score") if authenticity_info else None,
+                "authenticity": authenticity_info,
                 "message": (
-                    "⚠️ This image was flagged as suspicious or tampered by the Authenticity Engine "
+                    "⚠️ This image was flagged as duplicate or tampered by the Authenticity Engine "
                     "and cannot be processed for road hazard detection. "
                     "Please upload an original, unedited photograph taken directly from a camera."
                 )
@@ -837,7 +875,26 @@ async def detect_image(
     highest_severity = "Low"
     raw_detections_logged = []
 
-    # Option 1: OpenCV DNN (ONNX model) - preferred as it runs everywhere without PyTorch
+    # 3. ROAD SURFACE & ASPHALT VERIFICATION LAYER
+    try:
+        from .road_vision import verify_road_surface, detect_road_potholes
+    except ImportError:
+        from road_vision import verify_road_surface, detect_road_potholes
+
+    is_road, road_msg, road_coverage = verify_road_surface(img_bgr)
+    if not is_road:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "rejected": True,
+                "reason": f"No Valid Road: {road_msg}",
+                "authenticity_score": 25.0,
+                "message": f"🚫 Invalid Photo: This image does not depict an asphalt or concrete road surface ({road_msg}). Detection is only permitted on actual road surfaces."
+            }
+        )
+
+    # 4. ROAD POTHOLE DETECTION LAYER
+    # Option 1: OpenCV DNN (ONNX model) - if custom weights loaded
     if ONNX_NET is not None:
         try:
             blob = cv2.dnn.blobFromImage(img_bgr, 1/255.0, (640, 640), swapRB=True, crop=False)
@@ -852,7 +909,6 @@ async def detect_image(
             x_factor = w_orig / 640.0
             y_factor = h_orig / 640.0
             
-            # Postprocessing using init_thresh to NMSBoxes
             init_thresh = min(0.15, CONF_THRESHOLD)
             for pred in predictions:
                 confidence = float(pred[4])
@@ -884,13 +940,11 @@ async def detect_image(
                     
                     raw_detections_logged.append((cls_name, conf))
                     
-                    # 3. DETECTION VALIDATION LAYER
                     if validate_single_detection(xmin, ymin, xmax, ymax, conf, cls_name, w_orig, h_orig):
                         pothole_count += 1
                         if conf > max_conf:
                             max_conf = conf
                         
-                        # Draw box on image only if validated
                         cv2.rectangle(img_bgr, (xmin, ymin), (xmax, ymax), (0, 230, 180), 2)
                         label_str = f"Pothole {conf:.2f}"
                         cv2.putText(img_bgr, label_str, (xmin, max(15, ymin - 6)),
@@ -904,15 +958,15 @@ async def detect_image(
         except Exception as e:
             print(f"[ONNX Inference Error]: {e}")
 
-    # Option 2: PyTorch/Ultralytics fallback (if ONNX wasn't loaded)
-    elif YOLO_MODEL is not None:
+    # Option 2: PyTorch/Ultralytics fallback (if ONNX wasn't loaded and model has custom weights)
+    elif YOLO_MODEL is not None and YOLO_MODEL_PATH and "best" in str(YOLO_MODEL_PATH):
         try:
             init_thresh = min(0.15, CONF_THRESHOLD)
             results = YOLO_MODEL.predict(img_bgr, imgsz=416, conf=init_thresh, verbose=False)
             for r in results:
                 if hasattr(r, 'boxes') and r.boxes is not None:
                     for b in r.boxes:
-                        coords = b.xyxy[0].tolist() # [xmin, ymin, xmax, ymax]
+                        coords = b.xyxy[0].tolist()
                         conf = float(b.conf[0])
                         cls_id = int(b.cls[0])
                         cls_name = r.names.get(cls_id, "Pothole")
@@ -920,13 +974,11 @@ async def detect_image(
                         raw_detections_logged.append((cls_name, conf))
                         
                         xmin, ymin, xmax, ymax = map(int, coords)
-                        # 3. DETECTION VALIDATION LAYER
                         if validate_single_detection(xmin, ymin, xmax, ymax, conf, cls_name, w_orig, h_orig):
                             pothole_count += 1
                             if conf > max_conf:
                                 max_conf = conf
 
-                            # Draw box on image only if validated
                             cv2.rectangle(img_bgr, (xmin, ymin), (xmax, ymax), (0, 230, 180), 2)
                             label_str = f"{cls_name} {conf:.2f}"
                             cv2.putText(img_bgr, label_str, (xmin, max(15, ymin - 6)),
@@ -940,36 +992,35 @@ async def detect_image(
         except Exception as e:
             print(f"[YOLO Inference Error]: {e}")
 
-    # Fallback if no potholes detected or models unavailable
+    # Option 3: High-Precision Road Vision Pothole Extraction Engine
     if pothole_count == 0:
-        # Check if any model is actually active/loaded
-        if ONNX_NET is None and YOLO_MODEL is None:
-            # Model is unavailable (e.g. Render environment), use mock fallback for demo purposes
-            pothole_count = 1
-            max_conf = 0.82
-            highest_severity = "Medium"
-            # Add a mock detection box for frontend demo when model is not available
-            boxes_list.append({
-                "bbox": [int(w_orig*0.2), int(h_orig*0.2), int(w_orig*0.8), int(h_orig*0.8)],
-                "confidence": 0.82,
-                "class": "Pothole (Mock Fallback)"
-            })
-        else:
-            # A model is loaded, but actually detected 0 potholes in the image!
-            pothole_count = 0
-            max_conf = 0.0
-            highest_severity = "None"
-            raise HTTPException(
-                status_code=400,
-                detail="No pothole detected so unable to upload."
-            )
+        cv_potholes, annotated_cv, cv_max_conf, cv_msg = detect_road_potholes(img_bgr)
+        if cv_potholes:
+            boxes_list = cv_potholes
+            pothole_count = len(cv_potholes)
+            max_conf = cv_max_conf
+            img_bgr = annotated_cv
+            print(f"[Road Vision Engine]: {cv_msg}")
+
+    # 5. STRICT REJECTION IF NO POTHOLE FOUND ON ROAD
+    # If no potholes were detected, stop processing and DO NOT store in DB
+    if pothole_count == 0:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "rejected": True,
+                "reason": "No Pothole Hazard Found on Road",
+                "authenticity_score": 50.0,
+                "message": "ℹ️ No Valid Road Hazard: A road surface was detected, but no structural pothole or pavement damage was found in this photo. Safe roads are not registered as hazards."
+            }
+        )
+
+    if max_conf > 0.8:
+        highest_severity = "Critical" if pothole_count >= 3 else "High"
+    elif max_conf > 0.5:
+        highest_severity = "Medium"
     else:
-        if max_conf > 0.8:
-            highest_severity = "Critical" if pothole_count >= 3 else "High"
-        elif max_conf > 0.5:
-            highest_severity = "Medium"
-        else:
-            highest_severity = "Low"
+        highest_severity = "Low"
 
     # Check GIS Vulnerable Zone Proximity (School / Hospital / Clinic / College)
     is_vulnerable_zone, zone_desc = check_vulnerable_zone_proximity(lat, lon)

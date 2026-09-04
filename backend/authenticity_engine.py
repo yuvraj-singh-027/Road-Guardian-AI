@@ -129,17 +129,21 @@ def check_phash_duplicates(current_hash: str, historical_hashes: List[Dict[str, 
     Checks whether the image matches any previously registered road reports in the database
     to prevent recycled complaints or fraudulent duplicate spamming.
     """
+    if not current_hash:
+        return {"is_duplicate": False, "distance": 64, "matched_id": None}
+
     for item in historical_hashes:
         prev_hash = item.get("phash", "")
-        if prev_hash and prev_hash != current_hash:
+        if prev_hash:
             dist = hamming_distance(current_hash, prev_hash)
             if dist <= threshold:
+                matched_id = item.get("id")
                 return {
                     "is_duplicate": True,
                     "distance": dist,
-                    "matched_id": item.get("id"),
+                    "matched_id": matched_id,
                     "matched_hash": prev_hash,
-                    "reason": f"Recycled Photo Fraud: Image matches previously logged incident #RG-{1000 + (item.get('id') or 1)} (Hamming distance {dist} <= {threshold})"
+                    "reason": f"Duplicate Pothole Incident: Photo matches previously registered report #RG-{1000 + (matched_id or 1)} (Hamming distance {dist} <= {threshold})"
                 }
     return {"is_duplicate": False, "distance": 64, "matched_id": None}
 
@@ -525,6 +529,105 @@ def analyze_photo_authenticity(
 
     elapsed_ms = round((time.time() - start_time) * 1000, 1)
 
+    # Diagram Pipeline matching user architecture
+    flowchart_pipeline = {
+        "photo": {
+            "title": "PHOTO",
+            "filename": filename,
+            "resolution": f"{img_width}x{img_height} px"
+        },
+        "engine": {
+            "title": "AUTHENTICITY CHECK ENGINE",
+            "active": True
+        },
+        "parallel_checks": [
+            {
+                "id": "exif",
+                "title": "EXIF",
+                "subtitle": "Camera?",
+                "icon": "camera",
+                "status": "passed" if (exif_data.get("has_exif") and not exif_data.get("software_edited")) else ("suspicious" if exif_data.get("software_edited") else "warning"),
+                "status_label": "VERIFIED" if exif_data.get("has_exif") and not exif_data.get("software_edited") else ("TAMPERED" if exif_data.get("software_edited") else "GENERIC"),
+                "label": exif_data.get("make") or ("Mobile Sensor" if exif_data.get("has_exif") else "Generic Sensor"),
+                "details": f"{exif_data.get('make') or 'Generic'} ({exif_data.get('model') or 'Standard Optics'})"
+            },
+            {
+                "id": "gps",
+                "title": "GPS",
+                "subtitle": "Where?",
+                "icon": "globe",
+                "status": "passed" if gps_valid else "warning",
+                "status_label": "VALIDATED" if gps_valid else "UNPINNED",
+                "label": "Coordinates Coherent" if gps_valid else "Client Location Pin",
+                "details": f"Lat: {gps_lat:.4f}, Lon: {gps_lon:.4f}" if (gps_lat and gps_lon) else ("EXIF Geotag Present" if exif_data.get("has_gps_exif") else "Fallback Coordinates")
+            },
+            {
+                "id": "timestamp",
+                "title": "TIMESTAMP",
+                "subtitle": "When?",
+                "icon": "calendar",
+                "status": "passed" if exif_data.get("datetime") else "warning",
+                "status_label": "CONFIRMED" if exif_data.get("datetime") else "ESTIMATED",
+                "label": exif_data.get("datetime") or "Current Upload Session",
+                "details": exif_data.get("datetime") or "Synchronized with Upload Session"
+            }
+        ],
+        "sequential_pipeline": [
+            {
+                "id": "phash",
+                "title": "pHash Check",
+                "subtitle": "Duplicate hai?",
+                "icon": "fingerprint",
+                "status": "suspicious" if dup_check.get("is_duplicate") else "passed",
+                "status_label": "DUPLICATE" if dup_check.get("is_duplicate") else "UNIQUE",
+                "label": "Recycled Fraud" if dup_check.get("is_duplicate") else "Unique Incident",
+                "details": dup_check.get("reason", f"Perceptual hash 0x{phash[:8]}... distinct from database")
+            },
+            {
+                "id": "screen",
+                "title": "Screen Detection",
+                "subtitle": "Screen photo?",
+                "icon": "monitor",
+                "status": "suspicious" if screen_check.get("is_screen") else "passed",
+                "status_label": "SCREEN PHOTO" if screen_check.get("is_screen") else "NATURAL SCENE",
+                "label": "Electronic Display Flagged" if screen_check.get("is_screen") else "Physical Road Texture",
+                "details": screen_check.get("reason", "No 2D FFT moiré interference pattern detected.")
+            },
+            {
+                "id": "ela",
+                "title": "ELA Check",
+                "subtitle": "Editing signs?",
+                "icon": "grid",
+                "status": "suspicious" if ela_check.get("tampered") else "passed",
+                "status_label": "SPLICED" if ela_check.get("tampered") else "HOMOGENEOUS",
+                "label": "Local Splicing Detected" if ela_check.get("tampered") else "Uniform Quantization",
+                "details": f"ELA Score: {ela_check.get('ela_score')}/100 | Delta extrema: {ela_check.get('max_diff')}"
+            },
+            {
+                "id": "ai",
+                "title": "AI Detector",
+                "subtitle": "Synthetic signs?",
+                "icon": "brain",
+                "status": "suspicious" if ai_check.get("is_ai_generated") else "passed",
+                "status_label": "SYNTHETIC AI" if ai_check.get("is_ai_generated") else "REAL OPTICS",
+                "label": "Synthetic AI Artifacts" if ai_check.get("is_ai_generated") else "Physical Optical Noise",
+                "details": ai_check.get("reason", "Physical optical noise and natural edge gradients verified.")
+            },
+            {
+                "id": "final_score",
+                "title": "FINAL SCORE",
+                "subtitle": "0 – 100",
+                "icon": "star",
+                "score": score,
+                "status": "passed" if score >= 70 else ("warning" if score >= 40 else "suspicious"),
+                "status_label": status,
+                "label": f"{score}/100 ({status})",
+                "badge": status_badge,
+                "color": status_color
+            }
+        ]
+    }
+
     # Generate plaintext forensic report for copying
     text_report = (
         f"--- ROAD GUARDIAN AI FORENSIC AUDIT REPORT ---\n"
@@ -554,6 +657,7 @@ def analyze_photo_authenticity(
         "neutral_notes": neutral_notes,
         "bullet_summary": bullet_summary,
         "checklist": checklist,
+        "flowchart_pipeline": flowchart_pipeline,
         "ela_image_b64": ela_b64,
         "ela_visualization_b64": ela_b64,
         "dimensions": {"width": img_width, "height": img_height},

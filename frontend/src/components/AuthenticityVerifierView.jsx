@@ -3,8 +3,9 @@ import {
   ShieldCheck, Upload, RefreshCw, AlertTriangle, CheckCircle2, 
   HelpCircle, Eye, Sliders, FileText, Copy, Check, MapPin, 
   Clock, Camera, Cpu, Image as ImageIcon, Sparkles, Layers,
-  ExternalLink, ArrowRight, ShieldAlert, Info
+  ExternalLink, ArrowRight, ShieldAlert, Info, GitMerge, List
 } from 'lucide-react';
+import AuthenticityFlowchart from './AuthenticityFlowchart';
 
 export default function AuthenticityVerifierView({ onNavigateToDetection, initialImageUrl = null }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -15,6 +16,7 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
   const [errorMsg, setErrorMsg] = useState(null);
   const [similarityThreshold, setSimilarityThreshold] = useState(88.0);
   const [activeVisualTab, setActiveVisualTab] = useState('original'); // 'original' | 'ela'
+  const [viewMode, setViewMode] = useState('flowchart'); // 'flowchart' | 'checklist'
   const [copiedReport, setCopiedReport] = useState(false);
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
@@ -593,75 +595,123 @@ export default function AuthenticityVerifierView({ onNavigateToDetection, initia
             </div>
           </div>
 
-          {/* 7-Module Verification Checklist (Requirement 10 & 11) */}
+          {/* 7-Module Verification Checklist & Architecture Flowchart */}
           <div className="glass-card" style={{ padding: '24px' }}>
-            <h3 style={{ fontSize: '1.05rem', color: '#fff', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ background: '#27272a', width: '24px', height: '24px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: '#00E6B4' }}>2</span>
-              7-Layer Verification Checklist
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <h3 style={{ fontSize: '1.05rem', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ background: '#27272a', width: '24px', height: '24px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: '#00E6B4' }}>2</span>
+                Forensic Architecture & Verification Pipeline
+              </h3>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {report.checklist?.map((mod) => {
-                const badgeStyle = getStatusBadgeStyle(mod.status);
-                return (
-                  <div 
-                    key={mod.id}
-                    style={{
-                      background: '#18181b',
-                      border: '1px solid #27272a',
-                      borderRadius: '8px',
-                      padding: '12px 16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {/* View Mode Switcher */}
+              <div style={{ display: 'flex', background: '#18181b', padding: '3px', borderRadius: '8px', border: '1px solid #27272a' }}>
+                <button
+                  onClick={() => setViewMode('flowchart')}
+                  style={{
+                    background: viewMode === 'flowchart' ? 'rgba(0, 230, 180, 0.15)' : 'transparent',
+                    color: viewMode === 'flowchart' ? '#00E6B4' : '#a1a1aa',
+                    border: 'none',
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <GitMerge size={13} /> Architecture Flowchart
+                </button>
+                <button
+                  onClick={() => setViewMode('checklist')}
+                  style={{
+                    background: viewMode === 'checklist' ? 'rgba(0, 230, 180, 0.15)' : 'transparent',
+                    color: viewMode === 'checklist' ? '#00E6B4' : '#a1a1aa',
+                    border: 'none',
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <List size={13} /> Checklist Table
+                </button>
+              </div>
+            </div>
+
+            {viewMode === 'flowchart' ? (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <AuthenticityFlowchart authenticityData={report} previewImage={previewUrl} />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {report.checklist?.map((mod) => {
+                  const badgeStyle = getStatusBadgeStyle(mod.status);
+                  return (
+                    <div 
+                      key={mod.id}
+                      style={{
+                        background: '#18181b',
+                        border: '1px solid #27272a',
+                        borderRadius: '8px',
+                        padding: '12px 16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span 
+                            style={{
+                              background: badgeStyle.bg,
+                              border: `1px solid ${badgeStyle.border}`,
+                              color: badgeStyle.color,
+                              fontWeight: 700,
+                              fontSize: '0.85rem',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              minWidth: '26px',
+                              textAlign: 'center'
+                            }}
+                          >
+                            {badgeStyle.icon}
+                          </span>
+                          <div>
+                            <strong style={{ fontSize: '0.88rem', color: '#fff' }}>{mod.name}</strong>
+                            <span style={{ fontSize: '0.72rem', color: '#71717a', marginLeft: '8px' }}>
+                              [{mod.question}]
+                            </span>
+                          </div>
+                        </div>
+
                         <span 
                           style={{
-                            background: badgeStyle.bg,
-                            border: `1px solid ${badgeStyle.border}`,
-                            color: badgeStyle.color,
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
+                            fontSize: '0.75rem',
                             padding: '2px 8px',
-                            borderRadius: '4px',
-                            minWidth: '26px',
-                            textAlign: 'center'
+                            borderRadius: '12px',
+                            background: badgeStyle.bg,
+                            color: badgeStyle.color,
+                            fontWeight: 600
                           }}
                         >
-                          {badgeStyle.icon}
+                          {mod.status_label || mod.status.toUpperCase()}
                         </span>
-                        <div>
-                          <strong style={{ fontSize: '0.88rem', color: '#fff' }}>{mod.name}</strong>
-                          <span style={{ fontSize: '0.72rem', color: '#71717a', marginLeft: '8px' }}>
-                            [{mod.question}]
-                          </span>
-                        </div>
                       </div>
 
-                      <span 
-                        style={{
-                          fontSize: '0.75rem',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          background: badgeStyle.bg,
-                          color: badgeStyle.color,
-                          fontWeight: 600
-                        }}
-                      >
-                        {mod.status_label || mod.status.toUpperCase()}
-                      </span>
+                      <div style={{ fontSize: '0.8rem', color: '#d4d4d8', paddingLeft: '36px', lineHeight: 1.4 }}>
+                        {mod.explanation}
+                      </div>
                     </div>
-
-                    <div style={{ fontSize: '0.8rem', color: '#d4d4d8', paddingLeft: '36px', lineHeight: 1.4 }}>
-                      {mod.explanation}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Visual Forensic Comparison: Original vs ELA Map */}
