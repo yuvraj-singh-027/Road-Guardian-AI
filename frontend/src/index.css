@@ -838,3 +838,10 @@ body {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ==========================================================================
+   DARK MATTER GIS MAP FILTER (100% Free, Permanent, Zero API Key Required)
+   ========================================================================== */
+.dark-map-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(92%) !important;
+}

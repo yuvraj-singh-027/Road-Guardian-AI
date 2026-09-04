@@ -34,16 +34,17 @@ const TILE_PROVIDERS = {
   },
   satellite: {
     name: 'Satellite Aerial',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    maxZoom: 18,
-    attribution: '&copy; Esri World Imagery'
+    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    maxZoom: 20,
+    attribution: '&copy; Google Hybrid Satellite'
   },
   dark: {
     name: 'Dark Matter GIS',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    className: 'dark-map-tiles',
     maxZoom: 19,
-    subdomains: 'abcd',
-    attribution: '&copy; CARTO'
+    attribution: '&copy; OpenStreetMap contributors'
   }
 };
 
@@ -111,9 +112,11 @@ export default function DigitalTwinMapView() {
     });
 
     // Add initial street tile layer
-    const initialProvider = TILE_PROVIDERS.streets;
+    const initialProvider = TILE_PROVIDERS[mapStyle] || TILE_PROVIDERS.streets;
     const tileLayer = L.tileLayer(initialProvider.url, {
-      maxZoom: initialProvider.maxZoom,
+      maxZoom: initialProvider.maxZoom || 19,
+      subdomains: initialProvider.subdomains || 'abc',
+      className: initialProvider.className || '',
       attribution: initialProvider.attribution
     }).addTo(map);
 
@@ -148,8 +151,9 @@ export default function DigitalTwinMapView() {
 
     const provider = TILE_PROVIDERS[mapStyle] || TILE_PROVIDERS.streets;
     const newLayer = L.tileLayer(provider.url, {
-      maxZoom: provider.maxZoom,
+      maxZoom: provider.maxZoom || 19,
       subdomains: provider.subdomains || 'abc',
+      className: provider.className || '',
       attribution: provider.attribution
     }).addTo(map);
 
