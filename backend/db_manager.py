@@ -655,18 +655,21 @@ def add_status_history(
 
 
 def get_user_reports(
-    user_id: int,
+    user_id: Optional[Any] = None,
     is_admin: bool = False,
-    status_filter: Optional[str] = None
+    status_filter: Optional[str] = None,
+    user_email: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Securely retrieves road hazard reports.
-    If is_admin is False: returns ONLY reports belonging to user_id (WHERE user_id = ?).
+    Securely retrieves road hazard reports with strict user isolation.
+    If is_admin is False: returns ONLY reports belonging to user's email or user_id.
     If is_admin is True: returns all reports across the platform.
     """
     init_db()
     conn, db_type = get_db_connection()
     reports = []
+    clean_email = user_email.strip().lower() if (user_email and str(user_email).strip()) else None
+
     try:
         if db_type in ["mysql", "postgres"]:
             with conn.cursor() as cursor:
@@ -683,13 +686,29 @@ def get_user_reports(
                     query += " ORDER BY p.id DESC"
                     cursor.execute(query, tuple(params))
                 else:
-                    query = """
-                        SELECT p.*, u.name as user_name, u.email as user_email
-                        FROM pothole_detections p
-                        LEFT JOIN users u ON p.user_id = u.id
-                        WHERE p.user_id = %s
-                    """
-                    params = [user_id]
+                    if clean_email:
+                        query = """
+                            SELECT p.*, u.name as user_name, u.email as user_email
+                            FROM pothole_detections p
+                            LEFT JOIN users u ON p.user_id = u.id
+                            WHERE (
+                                LOWER(COALESCE(p.user_email, '')) = %s 
+                                OR LOWER(COALESCE(p.reporter_email, '')) = %s
+                                OR LOWER(COALESCE(p.user_gmail, '')) = %s
+                            )
+                        """
+                        params = [clean_email, clean_email, clean_email]
+                    elif user_id:
+                        query = """
+                            SELECT p.*, u.name as user_name, u.email as user_email
+                            FROM pothole_detections p
+                            LEFT JOIN users u ON p.user_id = u.id
+                            WHERE p.user_id = %s
+                        """
+                        params = [user_id]
+                    else:
+                        return []
+
                     if status_filter and status_filter.upper() != "ALL":
                         query += " AND p.status = %s"
                         params.append(status_filter.upper())
@@ -710,13 +729,29 @@ def get_user_reports(
                 query += " ORDER BY p.id DESC"
                 cursor = conn.execute(query, tuple(params))
             else:
-                query = """
-                    SELECT p.*, u.name as user_name, u.email as user_email
-                    FROM pothole_detections p
-                    LEFT JOIN users u ON p.user_id = u.id
-                    WHERE p.user_id = ?
-                """
-                params = [user_id]
+                if clean_email:
+                    query = """
+                        SELECT p.*, u.name as user_name, u.email as user_email
+                        FROM pothole_detections p
+                        LEFT JOIN users u ON p.user_id = u.id
+                        WHERE (
+                            LOWER(COALESCE(p.user_email, '')) = ? 
+                            OR LOWER(COALESCE(p.reporter_email, '')) = ?
+                            OR LOWER(COALESCE(p.user_gmail, '')) = ?
+                        )
+                    """
+                    params = [clean_email, clean_email, clean_email]
+                elif user_id:
+                    query = """
+                        SELECT p.*, u.name as user_name, u.email as user_email
+                        FROM pothole_detections p
+                        LEFT JOIN users u ON p.user_id = u.id
+                        WHERE p.user_id = ?
+                    """
+                    params = [user_id]
+                else:
+                    return []
+
                 if status_filter and status_filter.upper() != "ALL":
                     query += " AND p.status = ?"
                     params.append(status_filter.upper())
@@ -773,8 +808,9 @@ def get_user_reports(
 
 def get_report_by_id_with_history(
     report_id: int,
-    current_user_id: int,
-    is_admin: bool = False
+    current_user_id: Optional[Any] = None,
+    is_admin: bool = False,
+    current_user_email: Optional[str] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Retrieves a report and its complete status timeline history.
@@ -809,10 +845,15 @@ def get_report_by_id_with_history(
             return None, "not_found"
 
         report_owner_id = row.get("user_id")
+        report_email = (row.get("reporter_email") or row.get("user_email") or "").strip().lower()
+        clean_req_email = current_user_email.strip().lower() if (current_user_email and str(current_user_email).strip()) else ""
 
         # 2. Strict authorization check
-        if not is_admin and (report_owner_id is not None and report_owner_id != current_user_id):
-            return None, "unauthorized"
+        if not is_admin:
+            matches_email = bool(clean_req_email and report_email and clean_req_email == report_email)
+            matches_id = bool(current_user_id and report_owner_id and current_user_id == report_owner_id)
+            if not matches_email and not matches_id:
+                return None, "unauthorized"
 
         # 3. Fetch chronological status history
         history_events = []

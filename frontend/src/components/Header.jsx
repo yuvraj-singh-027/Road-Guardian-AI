@@ -1,7 +1,7 @@
 import React from 'react';
-import { Wifi, CloudRain, ShieldAlert, Users, Bell, User, Menu, ArrowLeftRight } from 'lucide-react';
+import { Wifi, CloudRain, ShieldAlert, Users, Bell, User, Menu, ArrowLeftRight, LogOut } from 'lucide-react';
 
-export default function Header({ title, subtitle, summaryStats, userRole, user, onSelectRole, onSwitchPortal, isMobileOpen, setIsMobileOpen }) {
+export default function Header({ title, subtitle, summaryStats, userRole, user, onSelectRole, onSwitchPortal, onLogout, isMobileOpen, setIsMobileOpen }) {
   return (
     <header className="top-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -83,37 +83,73 @@ export default function Header({ title, subtitle, summaryStats, userRole, user, 
           </>
         )}
 
-        {/* User Account / Profile Card */}
+        {/* User Account / Profile & Logout */}
         {user && (
-          <button 
-            className="telemetry-chip"
-            onClick={onSwitchPortal}
-            style={{ 
-              cursor: 'pointer', 
-              padding: '4px 10px', 
-              borderRadius: 'var(--radius-md)', 
-              background: 'rgba(24, 24, 27, 0.7)',
-              border: '1px solid var(--border-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.15s ease'
-            }}
-            title="View Profile Settings"
-          >
-            {user.profile_picture ? (
-              <img 
-                src={user.profile_picture} 
-                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover' }} 
-                alt={user.name} 
-              />
-            ) : (
-              <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(0, 230, 180, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 'bold' }}>
-                {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div 
+              className="telemetry-chip"
+              style={{ 
+                padding: '4px 10px', 
+                borderRadius: 'var(--radius-md)', 
+                background: 'rgba(24, 24, 27, 0.7)',
+                border: '1px solid var(--border-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              {user.profile_picture ? (
+                <img 
+                  src={user.profile_picture} 
+                  style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover' }} 
+                  alt={user.name} 
+                />
+              ) : (
+                <div style={{ 
+                  width: '22px', 
+                  height: '22px', 
+                  borderRadius: '50%', 
+                  background: userRole === 'admin' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(0, 230, 180, 0.2)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  fontSize: '0.72rem', 
+                  color: userRole === 'admin' ? '#F59E0B' : '#00E6B4', 
+                  fontWeight: 'bold' 
+                }}>
+                  {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                </div>
+              )}
+              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#e4e4e7' }}>{user.name.split(' ')[0]}</span>
+            </div>
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                style={{
+                  cursor: 'pointer',
+                  padding: '5px 10px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  color: '#f87171',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                title="Sign Out of Session"
+              >
+                <LogOut size={13} />
+                <span>Logout</span>
+              </button>
             )}
-            <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#e4e4e7' }}>{user.name.split(' ')[0]}</span>
-          </button>
+          </div>
         )}
       </div>
     </header>

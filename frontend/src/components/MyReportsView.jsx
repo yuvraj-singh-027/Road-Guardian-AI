@@ -10,7 +10,7 @@ import PublicFeedHistoryView from './PublicFeedHistoryView';
 import ReportGeneratorView from './ReportGeneratorView';
 import AuthenticityVerifierView from './AuthenticityVerifierView';
 
-export default function MyReportsView({ userRole, onNavigateToDetection, initialSubTab = 'my-reports' }) {
+export default function MyReportsView({ user, userRole, onNavigateToDetection, initialSubTab = 'my-reports' }) {
   const [subTab, setSubTab] = useState(initialSubTab);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,12 @@ export default function MyReportsView({ userRole, onNavigateToDetection, initial
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/reports/my-reports');
+      const effEmail = user?.email || (typeof window !== 'undefined' ? localStorage.getItem('road_guardian_reporter_email') : '') || '';
+      const queryParams = new URLSearchParams();
+      if (effEmail) queryParams.append('email', effEmail);
+      if (userRole) queryParams.append('role', userRole);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      const res = await fetch(`/api/reports/my-reports${qs}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || 'Failed loading reports');
@@ -57,14 +62,19 @@ export default function MyReportsView({ userRole, onNavigateToDetection, initial
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [user?.email, userRole]);
 
   const openReportTracking = async (reportId) => {
     setLoadingDetail(true);
     setStatusUpdateSuccess(null);
     setStatusUpdateNote('');
     try {
-      const res = await fetch(`/api/reports/${reportId}`);
+      const effEmail = user?.email || (typeof window !== 'undefined' ? localStorage.getItem('road_guardian_reporter_email') : '') || '';
+      const queryParams = new URLSearchParams();
+      if (effEmail) queryParams.append('email', effEmail);
+      if (userRole) queryParams.append('role', userRole);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      const res = await fetch(`/api/reports/${reportId}${qs}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || 'Failed to retrieve report lifecycle details');

@@ -10,6 +10,9 @@ import PublicFeedHistoryView from './components/PublicFeedHistoryView';
 import UserProfileModal from './components/UserProfileModal';
 import CitizenGuideWidget from './components/CitizenGuideWidget';
 import PortalSelectionSlide from './components/PortalSelectionSlide';
+import PublicAuthModal from './components/PublicAuthModal';
+import AdminAuthModal from './components/AdminAuthModal';
+import { signOutAuth, getVerifiedPublicSession, isSupabaseConfigured } from './supabaseClient';
 import { Camera, Map, ShieldAlert, Cpu, FileText, Activity, Lock, KeyRound, ArrowUpRight, ArrowDownRight, Loader } from 'lucide-react';
 
 // --- GLOBAL FETCH TOKEN INTERCEPTOR ---
@@ -50,35 +53,52 @@ const DEFAULT_MOCK_USER = {
 };
 
 export default function App() {
-  const [user, setUser] = useState(DEFAULT_MOCK_USER);
+  const [authenticatedRole, setAuthenticatedRole] = useState(() => {
+    const stored = localStorage.getItem('road_guardian_auth_session');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed?.role || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const [user, setUser] = useState(() => {
+    const stored = localStorage.getItem('road_guardian_auth_session');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed?.user) return parsed.user;
+      } catch {}
+    }
+    return DEFAULT_MOCK_USER;
+  });
+
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialAction, setAuthInitialAction] = useState('login');
   const [selectedPortal, setSelectedPortal] = useState(() => sessionStorage.getItem('road_guardian_selected_portal') || null);
-  const [userRole, setUserRole] = useState(() => sessionStorage.getItem('road_guardian_role') || 'admin');
+  const [userRole, setUserRole] = useState(() => sessionStorage.getItem('road_guardian_role') || 'public');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState(() => (sessionStorage.getItem('road_guardian_role') === 'admin' ? 'digital-twin' : 'detection'));
   const [summaryStats, setSummaryStats] = useState(null);
 
-  // Sync User session from JWT token via native /api/auth/me if available
+  // Check Supabase session on mount (e.g. returning from Google OAuth redirect)
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((res) => {
-        if (res.ok) return res.json();
-        return DEFAULT_MOCK_USER;
-      })
-      .then((userData) => {
-        if (userData && userData.email) {
-          setUser(userData);
-          if (userData.role) {
-            sessionStorage.setItem('road_guardian_role', userData.role);
-          }
+    async function checkSupabaseSession() {
+      const isConfigured = typeof isSupabaseConfigured === 'function' ? isSupabaseConfigured() : isSupabaseConfigured;
+      if (isConfigured) {
+        const sessionResult = await getVerifiedPublicSession();
+        if (sessionResult?.verified && sessionResult.user) {
+          handlePublicAuthSuccess(sessionResult.user);
         }
-      })
-      .catch(() => {
-        setUser(DEFAULT_MOCK_USER);
-      });
+      }
+    }
+    checkSupabaseSession();
   }, []);
 
   // Fetch summary stats
@@ -98,7 +118,29 @@ export default function App() {
   const handleSelectPortal = (portal) => {
     setSelectedPortal(portal);
     sessionStorage.setItem('road_guardian_selected_portal', portal);
-    handleSelectRole(portal);
+    if (authenticatedRole === portal) {
+      handleSelectRole(portal);
+    }
+  };
+
+  const handlePublicAuthSuccess = (verifiedUser) => {
+    setUser(verifiedUser);
+    setUserRole('public');
+    setAuthenticatedRole('public');
+    setSelectedPortal('public');
+    sessionStorage.setItem('road_guardian_role', 'public');
+    sessionStorage.setItem('road_guardian_selected_portal', 'public');
+    setActiveTab('detection');
+  };
+
+  const handleAdminAuthSuccess = (adminUser) => {
+    setUser(adminUser);
+    setUserRole('admin');
+    setAuthenticatedRole('admin');
+    setSelectedPortal('admin');
+    sessionStorage.setItem('road_guardian_role', 'admin');
+    sessionStorage.setItem('road_guardian_selected_portal', 'admin');
+    setActiveTab('digital-twin');
   };
 
   const handleOpenPortalSlide = () => {
@@ -107,10 +149,11 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    // Reset back to default admin user without locking out
+    await signOutAuth();
+    setAuthenticatedRole(null);
+    setSelectedPortal(null);
+    setUserRole('public');
     setUser(DEFAULT_MOCK_USER);
-    setUserRole('admin');
-    sessionStorage.setItem('road_guardian_role', 'admin');
     setShowProfileModal(false);
   };
 
@@ -178,12 +221,32 @@ export default function App() {
     </div>
   );
 
-  // Show the slide first that has an option of Public and Admin portal
+  // 1. Show the slide first that has an option of Public and Admin portal
   if (!selectedPortal) {
     return <PortalSelectionSlide onSelectPortal={handleSelectPortal} />;
   }
 
-  // Render main application layout once portal is chosen
+  // 2. If Public Portal is selected, authenticate & verify via Google OAuth
+  if (selectedPortal === 'public' && authenticatedRole !== 'public') {
+    return (
+      <PublicAuthModal 
+        onAuthSuccess={handlePublicAuthSuccess}
+        onBack={handleOpenPortalSlide}
+      />
+    );
+  }
+
+  // 3. If Admin Portal is selected, authenticate via authorized email and passcode
+  if (selectedPortal === 'admin' && authenticatedRole !== 'admin') {
+    return (
+      <AdminAuthModal 
+        onAuthSuccess={handleAdminAuthSuccess}
+        onBack={handleOpenPortalSlide}
+      />
+    );
+  }
+
+  // 4. Render main application layout once authenticated for chosen portal
   return (
     <div className="app-container">
       <Sidebar 
@@ -206,6 +269,7 @@ export default function App() {
           user={user}
           onSelectRole={handleSelectRole}
           onSwitchPortal={handleOpenPortalSlide}
+          onLogout={handleLogout}
           onOpenProfile={() => setShowProfileModal(true)}
           isMobileOpen={isMobileOpen}
           setIsMobileOpen={setIsMobileOpen}
@@ -294,6 +358,7 @@ export default function App() {
         {activeTab === 'my-reports' && (
           <MyReportsView 
             userRole={userRole} 
+            user={user}
             onNavigateToDetection={() => setActiveTab(userRole === 'admin' ? 'digital-twin' : 'detection')} 
           />
         )}
