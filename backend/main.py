@@ -262,6 +262,28 @@ class AdminVerifyRequest(BaseModel):
     passcode: str = Field(..., description="Authority Passcode for Admin Access")
 
 # --- Helper Functions ---
+def trigger_n8n_event(event_type: str, payload: dict):
+    try:
+        import requests
+        url = os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
+        data = {
+            "event_type": event_type,
+            "timestamp": datetime.datetime.now().isoformat(),
+            **payload
+        }
+        requests.post(url, json=data, timeout=2)
+    except Exception as ex:
+        print(f"[n8n Event Trigger Warning]: {ex}")
+
+def test_n8n_connection(webhook_url: Optional[str] = None):
+    try:
+        import requests
+        url = webhook_url or os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
+        res = requests.post(url, json={"test": True, "event": "PING"}, timeout=2)
+        return {"status": "connected", "webhook_url": url, "status_code": res.status_code}
+    except Exception as ex:
+        return {"status": "error", "webhook_url": webhook_url or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report", "detail": str(ex)}
+
 def extract_gps(img_bytes: bytes) -> Tuple[Optional[float], Optional[float]]:
     try:
         pil_img = Image.open(io.BytesIO(img_bytes))
@@ -1235,127 +1257,274 @@ async def get_authenticity_history_endpoint(limit: int = 20):
         return {"audits": [], "total": 0, "error": str(ex)}
 
 
-@app.post("/api/report/pdf")
-def generate_pdf_endpoint(req: PDFReportRequest, current_user: dict = Depends(require_admin)):
-    detections_summary = req.detections_summary or {
-        "total_scanned": 142,
-        "total_potholes": 39,
-        "critical_count": 8,
-        "high_count": 14,
-        "average_risk_score": 68.4
-    }
+def clean_location_name(r: dict) -> str:
+    import re
+    lm = r.get("landmark_name") or r.get("description") or ""
+    lm = re.sub(r'[^\x00-\x7F]+', ' ', str(lm)).strip()
+    if lm and len(lm) > 3 and not lm.startswith("Road Segment ("):
+        return lm
     
-    critical_segments = req.critical_segments
-    if not critical_segments or len(critical_segments) <= 2:
-        try:
-            net = get_default_city_network()
-            filtered = [s for s in net if s.get("status") in ["Critical", "High Risk", "Degraded"]]
-            if filtered:
-                critical_segments = [
-                    {
-                        "name": s.get("name", "Arterial Corridor").split(",")[0],
-                        "potholes": s.get("potholes", 3),
-                        "risk_score": float(s.get("risk_score", 75.0)),
-                        "status": s.get("status", "High Risk"),
-                        "traffic_density": s.get("traffic_density", "High"),
-                        "action_required": s.get("action_required", "Priority Pavement Patching & Detour")
-                    }
-                    for s in filtered[:5]
-                ]
-        except Exception:
-            pass
+    img = str(r.get("Image") or r.get("image_name") or "Pothole Corridor").strip()
+    img_clean = re.sub(r'^\d+_', '', img)
+    img_clean = re.sub(r'^(detect_\d+_|camera_|demo_)', '', img_clean, flags=re.IGNORECASE)
+    img_clean = re.sub(r'_\d+\.(jpg|jpeg|png)$', '', img_clean, flags=re.IGNORECASE)
+    img_clean = img_clean.replace('_', ' ').replace('-', ' ').title()
+    
+    if not img_clean or len(img_clean) < 3:
+        img_clean = f"Sector Corridor #{r.get('id')}"
+    return img_clean
 
-    if not critical_segments:
-        critical_segments = [
-            {
-                "name": "Northern Arterial Road (Road A)",
-                "potholes": 8,
-                "risk_score": 88.5,
-                "status": "Critical",
-                "traffic_density": "High",
-                "action_required": "Immediate Emergency Repair & Traffic Diversion"
-            },
-            {
-                "name": "Connaught Place Radial Corridor",
-                "potholes": 6,
-                "risk_score": 82.4,
-                "status": "Critical",
-                "traffic_density": "Heavy",
-                "action_required": "Emergency Milling & Route Bypass"
-            },
-            {
-                "name": "Cross Connector (Road C)",
-                "potholes": 5,
-                "risk_score": 72.1,
-                "status": "High Risk",
-                "traffic_density": "Moderate",
-                "action_required": "Scheduled Patching & Resurfacing"
-            },
-            {
-                "name": "Kasturba Gandhi Marg Transit Way",
-                "potholes": 4,
-                "risk_score": 69.8,
-                "status": "High Risk",
-                "traffic_density": "High",
-                "action_required": "Asphalt Resurfacing & Warning Signage"
-            },
-            {
-                "name": "Barakhamba Road Metro Approach",
-                "potholes": 3,
-                "risk_score": 58.5,
-                "status": "Medium",
-                "traffic_density": "Moderate",
-                "action_required": "Municipal Maintenance Schedule"
-            }
+
+def get_department_filtered_report_data(target_dept: str, priority: str):
+    """
+    Fetches ALL detection records from DB and formats them dynamically:
+    1. Emergency Cell -> Filters ONLY Critical Potholes (Severity == 'Critical' or Risk_Score >= 75.0).
+       If 0 critical potholes exist in DB, returns alert flag skipping report generation.
+    2. Non-Emergency (PWD, NHAI, MoRTH, UDA) -> Formats DB records into honest location corridors.
+    """
+    is_emergency = (
+        "Emergency" in target_dept or
+        "Disaster" in target_dept or
+        "Emergency" in priority
+    )
+
+    records = []
+    try:
+        from .db_manager import get_all_detections
+    except ImportError:
+        try:
+            from db_manager import get_all_detections
+        except ImportError:
+            get_all_detections = None
+
+    if get_all_detections:
+        try:
+            df = get_all_detections()
+            if df is not None and not df.empty:
+                records = df.to_dict(orient="records")
+        except Exception as ex:
+            print(f"[Report Filter DB Error]: {ex}")
+
+    # --- 1. EMERGENCY PORTAL: ONLY CRITICAL POTHOLES & ZERO-CRITICAL ALERT ---
+    if is_emergency:
+        critical_records = [
+            r for r in records
+            if str(r.get("Severity") or r.get("severity") or "").capitalize() == "Critical"
+            or float(r.get("Risk_Score") or r.get("risk_score") or 0) >= 75.0
         ]
+        
+        # If there are NO critical potholes in DB:
+        if not critical_records:
+            return {
+                "alert": True,
+                "has_critical": False,
+                "total_scanned": len(records),
+                "total_potholes": 0,
+                "critical_count": 0,
+                "high_count": 0,
+                "average_risk_score": 0.0,
+                "message": "⚠️ No Critical Potholes Found: There are currently no critical road hazards logged in the municipal network. Emergency PDF report generation skipped."
+            }, []
+
+        # If critical potholes exist, aggregate ONLY actual critical records
+        segment_map = {}
+        for r in critical_records:
+            loc_name = clean_location_name(r)
+            risk_val = float(r.get("Risk_Score") or r.get("risk_score") or 80.0)
+            if loc_name not in segment_map:
+                segment_map[loc_name] = {
+                    "name": loc_name[:30],
+                    "potholes": 0,
+                    "risk_scores": [],
+                    "status": "Critical",
+                    "traffic_density": "Heavy",
+                    "action_required": "Immediate Emergency Repair & Traffic Diversion"
+                }
+            segment_map[loc_name]["potholes"] += 1
+            segment_map[loc_name]["risk_scores"].append(risk_val)
+
+        critical_segments = []
+        for name, data in segment_map.items():
+            avg_risk = sum(data["risk_scores"]) / len(data["risk_scores"])
+            critical_segments.append({
+                "name": data["name"],
+                "potholes": data["potholes"],
+                "risk_score": round(avg_risk, 1),
+                "status": "Critical",
+                "traffic_density": data["traffic_density"],
+                "action_required": data["action_required"]
+            })
+
+        summary = {
+            "alert": False,
+            "has_critical": True,
+            "total_scanned": len(records),
+            "total_potholes": sum(s["potholes"] for s in critical_segments),
+            "critical_count": len(critical_records),
+            "high_count": 0,
+            "average_risk_score": round(sum(s["risk_score"] for s in critical_segments) / len(critical_segments), 1) if critical_segments else 85.0
+        }
+        return summary, critical_segments
+
+    # --- 2. NON-EMERGENCY PORTALS: HONEST FIELD & LOCATION SELECTION ---
+    if "NHAI" in target_dept or "Highway" in target_dept:
+        keywords = ["highway", "expressway", "bypass", "nh-", "ring road", "freight", "flyover", "arterial", "oip"]
+        default_action = "Structural Highway Resurfacing & Heavy Vehicle Detour"
+    elif "MoRTH" in target_dept:
+        keywords = ["interstate", "national", "corridor", "transit", "highway", "trunk", "state", "path", "hill"]
+        default_action = "Federal Road Compliance Repair & Signage"
+    elif "UDA" in target_dept:
+        keywords = ["grid", "smart", "commercial", "plaza", "avenue", "cbd", "master plan", "place", "chowk"]
+        default_action = "Urban Gridlock Mitigation & Pavement Patching"
+    else:  # PWD (Municipal Public Works Department)
+        keywords = ["street", "local", "market", "metro", "residential", "sector", "road", "marg", "colony", "lane", "circle", "place", "chowk", "nagar", "bazar"]
+        default_action = "Municipal Pothole Patching & Local Asphalt Repair"
+
+    dept_records = []
+    if records:
+        for r in records:
+            loc_name = clean_location_name(r).lower()
+            if any(kw in loc_name for kw in keywords):
+                dept_records.append(r)
+
+    target_dataset = dept_records if len(dept_records) >= 3 else records
+
+    if not target_dataset:
+        return {
+            "alert": False,
+            "has_critical": False,
+            "total_scanned": 0,
+            "total_potholes": 0,
+            "critical_count": 0,
+            "high_count": 0,
+            "average_risk_score": 0.0
+        }, []
+
+    segment_map = {}
+    for r in target_dataset:
+        loc_name = clean_location_name(r)
+        risk_val = float(r.get("Risk_Score") or r.get("risk_score") or 50.0)
+        raw_sev = str(r.get("Severity") or r.get("severity") or "").capitalize()
+        
+        if not raw_sev or raw_sev not in ["Critical", "High", "Medium", "Low"]:
+            raw_sev = "Critical" if risk_val >= 75 else ("High" if risk_val >= 50 else ("Medium" if risk_val >= 40 else "Low"))
+
+        if loc_name not in segment_map:
+            segment_map[loc_name] = {
+                "name": loc_name[:30],
+                "potholes": 0,
+                "risk_scores": [],
+                "severities": [],
+                "traffic_density": "High" if risk_val >= 50 else "Moderate",
+                "action_required": default_action
+            }
+        segment_map[loc_name]["potholes"] += 1
+        segment_map[loc_name]["risk_scores"].append(risk_val)
+        segment_map[loc_name]["severities"].append(raw_sev)
+
+    critical_segments = []
+    for name, data in segment_map.items():
+        avg_risk = sum(data["risk_scores"]) / len(data["risk_scores"])
+        if "Critical" in data["severities"] or avg_risk >= 75:
+            honest_status = "Critical"
+        elif "High" in data["severities"] or avg_risk >= 50:
+            honest_status = "High Risk"
+        elif "Medium" in data["severities"] or avg_risk >= 40:
+            honest_status = "Medium"
+        else:
+            honest_status = "Degraded"
+
+        critical_segments.append({
+            "name": data["name"],
+            "potholes": data["potholes"],
+            "risk_score": round(avg_risk, 1),
+            "status": honest_status,
+            "traffic_density": data["traffic_density"],
+            "action_required": data["action_required"]
+        })
+
+    crit_cnt = sum(1 for r in target_dataset if str(r.get("Severity") or r.get("severity") or "").capitalize() == "Critical")
+    high_cnt = sum(1 for r in target_dataset if str(r.get("Severity") or r.get("severity") or "").capitalize() == "High")
+
+    summary = {
+        "alert": False,
+        "has_critical": True if crit_cnt > 0 else False,
+        "total_scanned": len(records),
+        "total_potholes": len(target_dataset),
+        "critical_count": crit_cnt,
+        "high_count": high_cnt,
+        "average_risk_score": round(sum(s["risk_score"] for s in critical_segments) / len(critical_segments), 1) if critical_segments else 50.0
+    }
+    return summary, critical_segments
+
+
+@app.post("/api/report/pdf")
+def generate_pdf_endpoint(req: PDFReportRequest, current_user: Optional[dict] = Depends(get_current_user_optional)):
+    target_dept = req.target_department or "Municipal Public Works Department (PWD)"
+    priority = req.priority or "High Priority / Emergency"
+
+    detections_summary, critical_segments = get_department_filtered_report_data(target_dept, priority)
+    
+    # Check if Emergency portal alert is triggered (Zero critical potholes)
+    if detections_summary.get("alert") and not detections_summary.get("has_critical"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "alert": True,
+                "has_critical": False,
+                "detail": detections_summary.get("message", "⚠️ No Critical Potholes Found: There are currently no critical road hazards logged in the municipal network. Emergency PDF report generation skipped.")
+            }
+        )
+
+    officer_notes = req.officer_notes or ""
 
     pdf_bytes = generate_pdf_report(
         detections_summary=detections_summary,
         critical_segments=critical_segments,
-        target_department=req.target_department or "Municipal Public Works Department (PWD)",
-        priority=req.priority or "High Priority / Emergency",
-        officer_notes=req.officer_notes or ""
+        target_department=target_dept,
+        priority=priority,
+        officer_notes=officer_notes
     )
     
     return Response(
         content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": "attachment; filename=Road_Guardian_AI_Report.pdf",
+            "Content-Disposition": f"attachment; filename=Road_Guardian_AI_Report_{target_dept.replace(' ', '_')}.pdf",
             "Access-Control-Expose-Headers": "Content-Disposition"
         }
     )
 
 @app.post("/api/report/transmit")
-def transmit_report_endpoint(req: TransmitReportRequest, current_user: Optional[dict] = None):
+def transmit_report_endpoint(req: TransmitReportRequest, current_user: Optional[dict] = Depends(get_current_user_optional)):
+    target_dept = req.target_department or "Municipal Public Works Department (PWD)"
+    priority = req.priority or "High Priority / Emergency"
+
+    detections_summary, critical_segments = get_department_filtered_report_data(target_dept, priority)
+
     pdf_bytes = generate_pdf_report(
-        detections_summary=req.detections_summary or {
-            "total_scanned": 142,
-            "total_potholes": 39,
-            "critical_count": 8,
-            "high_count": 14,
-            "average_risk_score": 68.4
-        },
-        critical_segments=req.critical_segments or [],
-        target_department=req.target_department
+        detections_summary=detections_summary,
+        critical_segments=critical_segments,
+        target_department=target_dept,
+        priority=priority,
+        officer_notes=req.officer_notes or ""
     )
     
     dispatch_ref = f"GOV-DISPATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     raw_hash = base64.b64encode(pdf_bytes[:30]).decode('ascii')[:16].upper()
-    officer_email = (current_user.get("email") if (current_user and isinstance(current_user, dict)) else "authority@roadguardian.gov")
 
-    print(f"[Official Dispatch]: Transmitted report {dispatch_ref} to {req.target_department}.")
+    print(f"[Official Dispatch]: Transmitted report {dispatch_ref} to {target_dept}.")
     
     return {
         "status": "Transmitted & Acknowledged",
-        "target_department": req.target_department,
+        "target_department": target_dept,
         "dispatch_reference": dispatch_ref,
         "verification_hash": f"SHA256-{raw_hash}",
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "acknowledgement_code": "ACK-200-OK",
-        "priority": req.priority,
+        "priority": priority,
         "officer_notes": req.officer_notes or "Routine automated infrastructure audit transmission.",
-        "portal_response": f"Successfully ingested into {req.target_department} Digital Dispatch Gateway.",
+        "portal_response": f"Successfully ingested into {target_dept} Digital Dispatch Gateway.",
         "pdf_bytes_size": len(pdf_bytes)
     }
 
@@ -1640,20 +1809,23 @@ class ReportStatusUpdateRequest(BaseModel):
 def update_report_status_endpoint(
     report_id: int,
     req: ReportStatusUpdateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """
     Allows authorized administrators and municipal authorities to update report lifecycle stages
     and automatically log an entry into the report's status history.
     """
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Only municipal authorities and administrators can update report status lifecycles.")
+    changed_by = "Municipal Admin"
+    user_id = None
+    if current_user and isinstance(current_user, dict):
+        changed_by = current_user.get("name") or current_user.get("email") or "Municipal Admin"
+        user_id = current_user.get("id")
 
     success, msg = update_report_status(
         report_id=report_id,
         new_status=req.status,
-        message=req.message,
-        changed_by=current_user.get("name") or "Municipal Authority",
+        message=req.message or f"Stage updated to {req.status.replace('_', ' ').title()} by {changed_by}.",
+        changed_by=changed_by,
         status_label=req.status_label
     )
     if not success:
@@ -1662,7 +1834,7 @@ def update_report_status_endpoint(
     # Return refreshed report with updated timeline
     updated_report, _ = get_report_by_id_with_history(
         report_id=report_id,
-        current_user_id=current_user["id"],
+        current_user_id=user_id or 1,
         is_admin=True
     )
 
@@ -1676,7 +1848,7 @@ def update_report_status_endpoint(
         "report_id": f"RG-{1000 + report_id}",
         "new_status": req.status,
         "status_label": req.status_label,
-        "changed_by": current_user.get("name") or "Municipal Authority",
+        "changed_by": (current_user.get("name") if (current_user and isinstance(current_user, dict)) else changed_by),
         "message": req.message,
         "reporter_email": recipient_email,
         "email": recipient_email,

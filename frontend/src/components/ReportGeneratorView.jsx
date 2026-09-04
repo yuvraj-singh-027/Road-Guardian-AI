@@ -114,36 +114,14 @@ export default function ReportGeneratorView() {
   const getPayload = () => ({
     target_department: selectedDept,
     priority: priority,
-    officer_notes: officerNotes || 'Routine automated infrastructure audit transmission.',
-    detections_summary: {
-      total_scanned: 142,
-      total_potholes: 39,
-      critical_count: 8,
-      high_count: 14,
-      average_risk_score: 68.4
-    },
-    critical_segments: [
-      {
-        name: 'Northern Arterial Road (Road A)',
-        potholes: 8,
-        risk_score: 88.5,
-        status: 'Critical',
-        traffic_density: 'High',
-        action_required: 'Immediate Emergency Repair & Traffic Diversion'
-      },
-      {
-        name: 'Cross Connector (Road C)',
-        potholes: 5,
-        risk_score: 72.1,
-        status: 'High Risk',
-        traffic_density: 'Moderate',
-        action_required: 'Scheduled Patching & Resurfacing'
-      }
-    ]
+    officer_notes: officerNotes || 'Routine automated infrastructure audit transmission.'
   });
+
+  const [alertBanner, setAlertBanner] = useState(null);
 
   const handleDownloadPDF = async () => {
     setIsGenerating(true);
+    setAlertBanner(null);
     const payload = getPayload();
 
     try {
@@ -154,7 +132,12 @@ export default function ReportGeneratorView() {
       });
 
       if (!response || !response.ok) {
-        throw new Error('PDF Generation Failed');
+        const errData = await response.json().catch(() => ({}));
+        if (errData?.alert || errData?.detail?.includes('⚠️')) {
+          setAlertBanner(errData.detail || '⚠️ Alert: Zero critical potholes exist in the network. Emergency PDF report skipped.');
+          return;
+        }
+        throw new Error(errData?.detail || 'PDF Generation Failed');
       }
 
       const rawBlob = await response.blob();
@@ -172,7 +155,7 @@ export default function ReportGeneratorView() {
       }, 100);
     } catch (err) {
       console.error(err);
-      alert('Failed to generate PDF report. Please ensure backend server is running.');
+      alert(err.message || 'Failed to generate PDF report.');
     } finally {
       setIsGenerating(false);
     }
@@ -318,6 +301,13 @@ export default function ReportGeneratorView() {
                 style={{ resize: 'none' }}
               />
             </div>
+
+            {alertBanner && (
+              <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #EF4444', borderRadius: '8px', color: '#EF4444', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={18} />
+                <span>{alertBanner}</span>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>

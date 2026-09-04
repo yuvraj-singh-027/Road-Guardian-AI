@@ -3,7 +3,7 @@ import {
   ClipboardList, Clock, CheckCircle2, AlertTriangle, ShieldCheck, 
   MapPin, Eye, Search, Filter, RefreshCw, ChevronRight, X, ArrowRight,
   User, Check, AlertCircle, Wrench, ShieldAlert, Cpu, Sparkles, Send,
-  PieChart as PieIcon, BarChart2, History, FileText, Zap
+  PieChart as PieIcon, BarChart2, History, FileText, Zap, Plus
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import PublicFeedHistoryView from './PublicFeedHistoryView';
@@ -23,18 +23,49 @@ export default function MyReportsView({ user, userRole, onNavigateToDetection, i
   const [selectedNextStatus, setSelectedNextStatus] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [statusUpdateSuccess, setStatusUpdateSuccess] = useState(null);
+  const [quickStageOpen, setQuickStageOpen] = useState(null);
+  const [updatingStageId, setUpdatingStageId] = useState(null);
+  const [quickUpdateMsg, setQuickUpdateMsg] = useState(null);
 
   // Standard 8 Lifecycle Stages Definition
   const LIFECYCLE_STAGES = [
-    { key: 'SUBMITTED', label: 'Report Submitted', desc: 'Citizen photographic upload & geotag' },
-    { key: 'AI_VERIFIED', label: 'AI Verification', desc: 'AI hazard & Authenticity check passed' },
-    { key: 'UNDER_REVIEW', label: 'Under Review', desc: 'Municipal authority triage & assessment' },
-    { key: 'ASSIGNED', label: 'Assigned for Repair', desc: 'Dispatched to PWD / Road maintenance unit' },
-    { key: 'IN_PROGRESS', label: 'Repair In Progress', desc: 'On-site asphalt patching & crew active' },
-    { key: 'REPAIR_COMPLETED', label: 'Repair Completed', desc: 'Physical road resurfacing finished' },
-    { key: 'AI_REVERIFICATION', label: 'AI Reverification', desc: 'Post-repair computer vision audit' },
-    { key: 'RESOLVED', label: 'Resolved', desc: 'Municipal complaint ticket closed' },
+    { key: 'SUBMITTED', label: 'Report Submitted', desc: 'Citizen photographic upload & geotag', icon: '📝' },
+    { key: 'AI_VERIFIED', label: 'AI Verification', desc: 'AI hazard & Authenticity check passed', icon: '🤖' },
+    { key: 'UNDER_REVIEW', label: 'Under Review', desc: 'Municipal authority triage & assessment', icon: '🔍' },
+    { key: 'ASSIGNED', label: 'Assigned for Repair', desc: 'Dispatched to PWD / Road maintenance unit', icon: '👷' },
+    { key: 'IN_PROGRESS', label: 'Repair In Progress', desc: 'On-site asphalt patching & crew active', icon: '🛠️' },
+    { key: 'REPAIR_COMPLETED', label: 'Repair Completed', desc: 'Physical road resurfacing finished', icon: '🚧' },
+    { key: 'AI_REVERIFICATION', label: 'AI Reverification', desc: 'Post-repair computer vision audit', icon: '🔬' },
+    { key: 'RESOLVED', label: 'Resolved', desc: 'Municipal complaint ticket closed', icon: '✅' },
   ];
+
+  const handleQuickStageUpdate = async (reportId, stageKey, stageLabel) => {
+    setUpdatingStageId(reportId);
+    setQuickUpdateMsg(null);
+    try {
+      const res = await fetch(`/api/reports/${reportId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: stageKey,
+          status_label: stageLabel,
+          message: `Municipal Admin transitioned process stage to "${stageLabel}".`
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Stage update failed');
+      }
+      setQuickUpdateMsg({ reportId, text: `✅ Stage updated to "${stageLabel}"` });
+      setTimeout(() => setQuickUpdateMsg(null), 3500);
+      setQuickStageOpen(null);
+      fetchReports();
+    } catch (err) {
+      alert(err.message || 'Failed to update stage');
+    } finally {
+      setUpdatingStageId(null);
+    }
+  };
 
   const fetchReports = async () => {
     setLoading(true);
@@ -524,25 +555,124 @@ export default function MyReportsView({ user, userRole, onNavigateToDetection, i
                 }}
               >
                 <div>
-                  {/* Top row: ID & Status Badge */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  {/* Top row: ID, Status Badge & Admin Quick + Stage Approval */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', position: 'relative' }}>
                     <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#38BDF8', letterSpacing: '0.5px' }}>
                       #{report.report_id}
                     </span>
-                    <span 
-                      style={{
-                        background: statusBadge.bg,
-                        border: `1px solid ${statusBadge.border}`,
-                        color: statusBadge.color,
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        padding: '3px 8px',
-                        borderRadius: '12px'
-                      }}
-                    >
-                      {statusBadge.label}
-                    </span>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span 
+                        style={{
+                          background: statusBadge.bg,
+                          border: `1px solid ${statusBadge.border}`,
+                          color: statusBadge.color,
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: '12px'
+                        }}
+                      >
+                        {statusBadge.label}
+                      </span>
+
+                      {/* Admin Quick + Stage Approval Button */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQuickStageOpen(quickStageOpen === report.id ? null : report.id);
+                        }}
+                        style={{
+                          background: 'rgba(0, 230, 180, 0.15)',
+                          border: '1px solid #00E6B4',
+                          color: '#00E6B4',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title="Admin Quick Approve & Transition Stage (+)"
+                      >
+                        <Plus size={13} /> Stage
+                      </button>
+                    </div>
+
+                    {/* Quick Stage Selection Popover Dropdown */}
+                    {quickStageOpen === report.id && (
+                      <div 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          right: 0,
+                          marginTop: '6px',
+                          width: '270px',
+                          background: '#121217',
+                          border: '1.5px solid #00E6B4',
+                          borderRadius: '10px',
+                          padding: '10px',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.85)',
+                          zIndex: 999
+                        }}
+                      >
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#00E6B4', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>⚡ ADVANCE PROCESS STAGE</span>
+                          <button 
+                            onClick={() => setQuickStageOpen(null)} 
+                            style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '0.9rem' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '250px', overflowY: 'auto' }}>
+                          {LIFECYCLE_STAGES.map((st) => {
+                            const isCurrent = report.status?.toUpperCase() === st.key;
+                            return (
+                              <button
+                                key={st.key}
+                                onClick={() => handleQuickStageUpdate(report.id, st.key, st.label)}
+                                disabled={updatingStageId === report.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  background: isCurrent ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                                  border: isCurrent ? '1px solid #38BDF8' : '1px solid transparent',
+                                  color: isCurrent ? '#38BDF8' : '#fff',
+                                  fontSize: '0.76rem',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s'
+                                }}
+                              >
+                                <span style={{ fontSize: '0.9rem' }}>{st.icon}</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: isCurrent ? 700 : 500 }}>{st.label}</div>
+                                  <div style={{ fontSize: '0.65rem', color: '#71717a' }}>{st.desc}</div>
+                                </div>
+                                {isCurrent && <span style={{ fontSize: '0.65rem', color: '#38BDF8', fontWeight: 700 }}>ACTIVE</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Toast Feedback Notification */}
+                  {quickUpdateMsg?.reportId === report.id && (
+                    <div style={{ fontSize: '0.74rem', color: '#00E6B4', marginBottom: '8px', fontWeight: 700, padding: '4px 8px', background: 'rgba(0, 230, 180, 0.1)', borderRadius: '6px', border: '1px solid rgba(0, 230, 180, 0.3)' }}>
+                      {quickUpdateMsg.text}
+                    </div>
+                  )}
 
                   {/* Attached Photograph Preview */}
                   {report.image_name && (

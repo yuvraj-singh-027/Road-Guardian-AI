@@ -186,7 +186,7 @@ def generate_pdf_report(
     pdf.set_font("Helvetica", "", 7.8)
     pdf.set_text_color(51, 65, 85)
     
-    table_rows = critical_segments[:5] if critical_segments else [
+    table_rows = critical_segments if critical_segments else [
         {
             "name": "Connaught Place Outer Circle (Radial 3)",
             "status": "Critical",
