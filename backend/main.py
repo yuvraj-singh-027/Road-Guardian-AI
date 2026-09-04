@@ -264,27 +264,56 @@ class AdminVerifyRequest(BaseModel):
     passcode: str = Field(..., description="Authority Passcode for Admin Access")
 
 # --- Helper Functions ---
-def trigger_n8n_event(event_type: str, payload: dict):
+def trigger_n8n_event(event_type: str, payload: dict, webhook_url: Optional[str] = None) -> dict:
     try:
         import requests
-        url = os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
+        url = webhook_url or os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
         data = {
             "event_type": event_type,
             "timestamp": datetime.datetime.now().isoformat(),
             **payload
         }
-        requests.post(url, json=data, timeout=2)
+        headers = {
+            "Content-Type": "application/json",
+            "road-guardian-ai": "road-guardian-ai",
+            "x-road-guardian-token": "road-guardian-ai"
+        }
+        res = requests.post(url, json=data, headers=headers, timeout=5)
+        success = (200 <= res.status_code < 300)
+        if not success:
+            print(f"[n8n Event Trigger Error]: HTTP {res.status_code} - {res.text}")
+        return {"success": success, "status_code": res.status_code, "response": res.text, "url": url}
     except Exception as ex:
         print(f"[n8n Event Trigger Warning]: {ex}")
+        target_url = webhook_url or os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
+        return {"success": False, "status_code": 500, "response": str(ex), "url": target_url}
 
 def test_n8n_connection(webhook_url: Optional[str] = None):
     try:
         import requests
         url = webhook_url or os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
-        res = requests.post(url, json={"test": True, "event": "PING"}, timeout=2)
-        return {"status": "connected", "webhook_url": url, "status_code": res.status_code}
+        headers = {
+            "Content-Type": "application/json",
+            "road-guardian-ai": "road-guardian-ai",
+            "x-road-guardian-token": "road-guardian-ai"
+        }
+        res = requests.post(url, json={"test": True, "event": "PING"}, headers=headers, timeout=5)
+        success = (200 <= res.status_code < 300)
+        return {
+            "success": success,
+            "status": "connected" if success else "error",
+            "webhook_url": url,
+            "status_code": res.status_code,
+            "detail": res.text if not success else "OK"
+        }
     except Exception as ex:
-        return {"status": "error", "webhook_url": webhook_url or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report", "detail": str(ex)}
+        return {
+            "success": False,
+            "status": "error",
+            "webhook_url": webhook_url or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report",
+            "status_code": 500,
+            "detail": str(ex)
+        }
 
 def extract_gps(img_bytes: bytes) -> Tuple[Optional[float], Optional[float]]:
     try:
@@ -809,7 +838,7 @@ async def detect_image(
     user_email: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
     user_gmail: Optional[str] = Form(None),
-    current_user: Optional[dict] = None
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     contents = await file.read()
 
@@ -818,10 +847,10 @@ async def detect_image(
     resolved_email: str = ""
     if submitted_email and str(submitted_email).strip() and "@" in str(submitted_email):
         resolved_email = str(submitted_email).strip()
-    elif current_user and isinstance(current_user, dict) and current_user.get("email"):
+    elif current_user and isinstance(current_user, dict) and current_user.get("email") and current_user.get("email") != "admin@roadguardian.gov":
         resolved_email = str(current_user.get("email")).strip()
     else:
-        resolved_email = "citizen@roadguardian.gov"
+        resolved_email = str(submitted_email).strip() if (submitted_email and str(submitted_email).strip()) else "citizen@roadguardian.gov"
 
     # 1. BASIC IMAGE VALIDATION LAYER
     validate_uploaded_image(contents, file.filename or "uploaded_hazard.jpg", file.content_type or "")
@@ -1158,7 +1187,57 @@ async def detect_image(
 
             if db_saved:
                 eff_id = logged_report_id if (logged_report_id is not None and logged_report_id > 0) else 1
-                print(f"[DB Auto-Save]: Hazard detection logged successfully with ID RG-{1000 + eff_id}.")
+                sub_id = f"RG-{1000 + eff_id}"
+                print(f"[DB Auto-Save]: Hazard detection logged successfully with ID {sub_id}.")
+
+                is_crit = highest_severity.lower() == "critical"
+                dept = "Emergency Disaster Cell" if is_crit else "Municipal Public Works Department (PWD)"
+                prio = "Emergency / Critical" if is_crit else f"{highest_severity} Priority"
+                r_score = float(risk_info.get("score", 75.0))
+
+                trigger_n8n_event("HAZARD_DETECTED", {
+                    "submission_id": sub_id,
+                    "received_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "user_email": resolved_email,
+                    "target_department": dept,
+                    "priority": prio,
+                    "officer_notes": f"AI Hazard Perception Scan verified. Severity: {highest_severity}, Risk Score: {r_score}.",
+                    "road_name": resolved_landmark,
+                    "address": resolved_landmark,
+                    "latitude": float(lat),
+                    "longitude": float(lon),
+                    "total_scanned": 1,
+                    "total_potholes": pothole_count,
+                    "critical_count": 1 if is_crit else 0,
+                    "average_risk_score": r_score,
+
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "lng": float(lon),
+                    "landmark": resolved_landmark,
+                    "landmark_name": resolved_landmark,
+                    "report_id": sub_id,
+                    "reporter_email": resolved_email,
+                    "email": resolved_email,
+                    "severity": highest_severity,
+                    "risk_score": r_score,
+                    "gps": {
+                        "latitude": float(lat),
+                        "longitude": float(lon),
+                        "lat": float(lat),
+                        "lon": float(lon)
+                    },
+                    "location": {
+                        "road_name": resolved_landmark,
+                        "address": resolved_landmark,
+                        "landmark_name": resolved_landmark,
+                        "landmark": resolved_landmark,
+                        "latitude": float(lat),
+                        "longitude": float(lon),
+                        "lat": float(lat),
+                        "lon": float(lon)
+                    }
+                })
             else:
                 print(f"[DB Auto-Save Warning]: DB rejected or insert failed ({db_insert_msg}).")
         except Exception as db_ex:
@@ -1891,6 +1970,7 @@ def n8n_workflow_status():
 
 
 class N8nSubmitReportRequest(BaseModel):
+    webhook_url: Optional[str] = None
     target_department: Optional[str] = "Municipal Public Works Department"
     priority: Optional[str] = "High Priority"
     officer_notes: Optional[str] = "Critical pothole requires immediate inspection."
@@ -1907,53 +1987,81 @@ def n8n_submit_report(req: N8nSubmitReportRequest, current_user: Optional[dict] 
     Step 16 guide submission endpoint to post test report payload from FastAPI to n8n.
     """
     eff_email = (
-        req.email or 
-        req.user_email or 
+        (req.reporter_email if req.reporter_email and req.reporter_email != "admin@roadguardian.gov" else None) or 
+        (req.email if req.email and req.email != "admin@roadguardian.gov" else None) or 
+        (req.user_email if req.user_email and req.user_email != "admin@roadguardian.gov" else None) or 
         req.user_gmail or 
-        (req.reporter_email if req.reporter_email and req.reporter_email != "citizen@roadguardian.gov" else None) or 
-        (current_user.get("email") if (current_user and isinstance(current_user, dict)) else None) or 
+        req.reporter_email or 
+        req.email or 
+        (current_user.get("email") if (current_user and isinstance(current_user, dict) and current_user.get("email") != "admin@roadguardian.gov") else None) or 
         "citizen@roadguardian.gov"
     )
+    now_iso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     submission_id = f"RG-{int(time.time())}"
+    landmark = "5th Cross Rd, Indiranagar, Bengaluru"
+    lat_val = 12.9716
+    lon_val = 77.5946
     payload = {
+        # 14 Exact Requested Fields:
         "submission_id": submission_id,
+        "received_at": now_iso,
+        "user_email": eff_email,
+        "target_department": req.target_department or "Municipal Public Works Department (PWD)",
+        "priority": req.priority or "Critical Priority",
+        "officer_notes": req.officer_notes or "Live automated triage report from Control Hub.",
+        "road_name": landmark,
+        "address": landmark,
+        "latitude": lat_val,
+        "longitude": lon_val,
+        "total_scanned": 6,
+        "total_potholes": 3,
+        "critical_count": 2,
+        "average_risk_score": 89.4,
+
+        # Extended aliases and nested objects for n8n Extract node compatibility:
+        "lat": lat_val,
+        "lon": lon_val,
+        "lng": lon_val,
+        "landmark": landmark,
+        "landmark_name": landmark,
         "report_id": submission_id,
-        "event": "HAZARD_DETECTED",
-        "target_department": req.target_department,
-        "priority": req.priority,
-        "severity": "Critical",
-        "pothole_count": 3,
-        "max_confidence": 0.94,
-        "risk_score": 89.4,
-        "landmark_name": "5th Cross Rd, Indiranagar",
-        "gps": {"latitude": 12.9716, "longitude": 77.5946},
-        "officer_notes": req.officer_notes,
         "reporter_email": eff_email,
         "email": eff_email,
-        "user_email": eff_email,
         "user_gmail": eff_email,
-        "recipient_email": eff_email,
-        "to": eff_email,
-        "detections_summary": req.detections_summary or {
-            "total_scanned": 1,
-            "total_potholes": 1,
-            "critical_count": 1,
-            "average_risk_score": 86.5
+        "severity": "Critical",
+        "pothole_count": 3,
+        "risk_score": 89.4,
+        "event": "HAZARD_DETECTED",
+        "gps": {
+            "latitude": lat_val,
+            "longitude": lon_val,
+            "lat": lat_val,
+            "lon": lon_val
         },
-        "critical_segments": req.critical_segments or []
+        "location": {
+            "road_name": landmark,
+            "address": landmark,
+            "landmark_name": landmark,
+            "landmark": landmark,
+            "latitude": lat_val,
+            "longitude": lon_val,
+            "lat": lat_val,
+            "lon": lon_val
+        }
     }
     
-    test_res = test_n8n_connection()
-    status_code = test_res.get("status_code", 200) if test_res.get("success") else 200
-    
-    trigger_n8n_event("HAZARD_DETECTED", payload)
+    trigger_res = trigger_n8n_event("HAZARD_DETECTED", payload, webhook_url=req.webhook_url)
+    success = trigger_res.get("success", False)
+    status_code = trigger_res.get("status_code", 500)
     
     return {
-        "status": "accepted",
+        "success": success,
+        "status": "accepted" if success else "error",
         "mode": "n8n-proof-of-concept",
         "submission_id": submission_id,
         "webhook_status": status_code,
-        "webhook_url": test_res.get("webhook_url")
+        "webhook_url": trigger_res.get("url"),
+        "error_detail": trigger_res.get("response") if not success else None
     }
 
 
@@ -1970,39 +2078,87 @@ def n8n_sync_all_db_potholes(current_user: Optional[dict] = Depends(get_current_
 
         synced_records = []
         for r in db_reports:
+            rec_id = r.get("id", 0)
+            sub_id = str(r.get("report_id") or f"RG-{1000 + int(rec_id)}")
+            eff_email = str(r.get("reporter_email") or r.get("user_email") or r.get("user_gmail") or "citizen@roadguardian.gov")
+            landmark = str(r.get("landmark_name") or "Municipal Road Segment")
+            created_at_val = str(r.get("created_at") or r.get("time") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            sev = str(r.get("severity") or "Medium")
+            risk_sc = float(r.get("risk_score") or 50.0)
+            lat_val = float(r.get("latitude") or 28.6139)
+            lon_val = float(r.get("longitude") or 77.2090)
+            is_crit = sev.lower() == "critical"
+
+            dept = "Emergency Disaster Cell" if is_crit else "Municipal Public Works Department (PWD)"
+            prio = "Emergency / Critical" if is_crit else f"{sev} Priority"
+
             formatted_record = {
-                "event": "HAZARD_DETECTED",
-                "report_id": str(r.get("report_id") or f"RG-{1000 + int(r.get('id', 0))}"),
-                "db_id": int(r.get("id", 0)),
-                "landmark_name": str(r.get("landmark_name") or "Municipal Road Segment"),
-                "severity": str(r.get("severity") or "Medium"),
-                "risk_score": float(r.get("risk_score") or 50.0),
-                "confidence": float(r.get("confidence") or 0.85),
+                # 14 Exact Requested Fields:
+                "submission_id": sub_id,
+                "received_at": created_at_val,
+                "user_email": eff_email,
+                "target_department": dept,
+                "priority": prio,
+                "officer_notes": f"AI Hazard Perception Scan verified. Severity: {sev}, Risk Score: {risk_sc}.",
+                "road_name": landmark,
+                "address": landmark,
+                "latitude": lat_val,
+                "longitude": lon_val,
+                "total_scanned": 1,
+                "total_potholes": 1,
+                "critical_count": 1 if is_crit else 0,
+                "average_risk_score": risk_sc,
+
+                # Extended aliases and nested objects for n8n Extract node compatibility:
+                "lat": lat_val,
+                "lon": lon_val,
+                "lng": lon_val,
+                "landmark": landmark,
+                "landmark_name": landmark,
+                "report_id": sub_id,
+                "db_id": rec_id,
+                "reporter_email": eff_email,
+                "email": eff_email,
+                "severity": sev,
+                "risk_score": risk_sc,
                 "status": str(r.get("status") or "AI_VERIFIED"),
-                "damage_type": str(r.get("damage_type") or "Pothole"),
-                "latitude": float(r.get("latitude") or 28.6139),
-                "longitude": float(r.get("longitude") or 77.2090),
-                "user_name": str(r.get("user_name") or "Citizen Contributor"),
-                "reporter_email": str(r.get("reporter_email") or r.get("user_email") or "citizen@roadguardian.gov"),
-                "user_email": str(r.get("user_email") or r.get("reporter_email") or "citizen@roadguardian.gov"),
-                "email": str(r.get("reporter_email") or r.get("user_email") or "citizen@roadguardian.gov"),
-                "created_at": str(r.get("created_at") or ""),
-                "updated_at": str(r.get("updated_at") or "")
+                "event": "HAZARD_DETECTED",
+                "gps": {
+                    "latitude": lat_val,
+                    "longitude": lon_val,
+                    "lat": lat_val,
+                    "lon": lon_val
+                },
+                "location": {
+                    "road_name": landmark,
+                    "address": landmark,
+                    "landmark_name": landmark,
+                    "landmark": landmark,
+                    "latitude": lat_val,
+                    "longitude": lon_val,
+                    "lat": lat_val,
+                    "lon": lon_val
+                }
             }
             synced_records.append(formatted_record)
 
         import threading
 
         def _async_sync():
-            for record in synced_records:
-                trigger_n8n_event("HAZARD_DETECTED", record)
-            batch_payload = {
-                "event_type": "BATCH_DB_SYNC",
-                "timestamp": datetime.datetime.now().isoformat(),
-                "total_records": len(synced_records),
-                "potholes": synced_records
-            }
-            trigger_n8n_event("BATCH_DB_SYNC", batch_payload)
+            # Send all database records in 1 single bulk JSON array POST request
+            # This prevents Google Sheets API concurrency write locks and rate limits!
+            try:
+                import requests
+                url = os.getenv("N8N_WEBHOOK_URL") or "https://yuvi027.app.n8n.cloud/webhook/road-guardian-report"
+                headers = {
+                    "Content-Type": "application/json",
+                    "road-guardian-ai": "road-guardian-ai",
+                    "x-road-guardian-token": "road-guardian-ai"
+                }
+                res = requests.post(url, json=synced_records, headers=headers, timeout=15)
+                print(f"[n8n Bulk Array Sync Status]: {res.status_code} - {res.text[:100]}")
+            except Exception as ex:
+                print(f"[n8n Bulk Array Sync Error]: {ex}")
 
         t = threading.Thread(target=_async_sync, daemon=True)
         t.start()

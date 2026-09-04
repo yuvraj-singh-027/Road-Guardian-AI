@@ -9,6 +9,9 @@ export default function N8nAutomationView({ user }) {
   const [submitResult, setSubmitResult] = useState(null);
   const [isSyncingDb, setIsSyncingDb] = useState(false);
   const [syncDbResult, setSyncDbResult] = useState(null);
+  const [customReporterEmail, setCustomReporterEmail] = useState(() => {
+    return localStorage.getItem('road_guardian_reporter_email') || (user && user.email !== 'admin@roadguardian.gov' ? user.email : 'citizen@roadguardian.gov');
+  });
 
   const handleSyncAllDbPotholes = async () => {
     setIsSyncingDb(true);
@@ -97,7 +100,7 @@ export default function N8nAutomationView({ user }) {
     setIsSubmitting(true);
     setSubmitResult(null);
     try {
-      const activeEmail = (user && user.email) || localStorage.getItem('road_guardian_reporter_email') || '';
+      const activeEmail = customReporterEmail || localStorage.getItem('road_guardian_reporter_email') || (user && user.email !== 'admin@roadguardian.gov' ? user.email : 'citizen@roadguardian.gov');
       const sampleReport = {
         event: "HAZARD_DETECTED",
         target_department: "Municipal Public Works Department (PWD)",
@@ -245,9 +248,34 @@ export default function N8nAutomationView({ user }) {
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 12px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Send size={18} color="#EA580C" /> Trigger Manual Verification Payload
           </h3>
-          <p style={{ fontSize: '0.82rem', color: '#a1a1aa', marginBottom: '16px' }}>
+          <p style={{ fontSize: '0.82rem', color: '#a1a1aa', marginBottom: '14px' }}>
             Dispatch test payloads directly from this control hub to test your live n8n workflow and verify new rows in Google Sheets.
           </p>
+
+          <div style={{ marginBottom: '14px' }}>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#00E6B4', marginBottom: '4px' }}>
+              REPORTER CONTACT EMAIL FOR DISPATCH:
+            </label>
+            <input 
+              type="email"
+              value={customReporterEmail}
+              onChange={(e) => {
+                setCustomReporterEmail(e.target.value);
+                localStorage.setItem('road_guardian_reporter_email', e.target.value);
+              }}
+              placeholder="e.g. yuvrajmksingh20@gmail.com"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #3f3f46',
+                background: '#09090b',
+                color: '#fff',
+                fontSize: '0.82rem',
+                outline: 'none'
+              }}
+            />
+          </div>
 
           <div style={{ display: 'flex', gap: '12px', flexDirection: 'column' }}>
             <button 
