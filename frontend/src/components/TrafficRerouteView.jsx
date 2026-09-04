@@ -6,8 +6,8 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 
-export default function TrafficRerouteView() {
-  const [simMode, setSimMode] = useState('reroute'); // 'reroute' | 'sumo'
+export default function TrafficRerouteView({ initialSimMode = 'sumo' }) {
+  const [simMode, setSimMode] = useState(initialSimMode);
   const [closedRoadId, setClosedRoadId] = useState('Sec1_Blvd_N1');
   const [closureType, setClosureType] = useState('full'); // 'full' or 'single_lane'
   const [trafficWindow, setTrafficWindow] = useState('peak'); // 'peak', 'normal', 'off_peak'

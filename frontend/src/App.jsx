@@ -176,19 +176,15 @@ export default function App() {
         };
       case 'digital-twin':
         return {
-          title: 'Digital Twin GIS Road Network Map',
-          subtitle: 'Real-time spatial infrastructure telemetry, scanned road defects, and vulnerability zone heatmaps'
+          title: 'Live Road Map',
+          subtitle: 'Real-time spatial road hazard telemetry, scanned defects, and vulnerability heatmaps'
         };
       case 'traffic-simulator':
       case 'traffic-reroute':
-        return {
-          title: 'SUMO Traffic Simulator & Rerouting Engine',
-          subtitle: 'Microscopic bottleneck kinematics, road closure impact modeling, and dynamic city rerouting'
-        };
       case 'risk-calculator':
         return {
-          title: 'Policy Simulator & Forensics Lab',
-          subtitle: 'Interactive what-if risk scenario modeling (weather, speed, school zones) & 5-layer forensic image gate diagnostics'
+          title: 'Traffic & Risk Simulator',
+          subtitle: 'SUMO microscopic traffic bottleneck kinematics, dynamic road hazard risk scoring, and image forensics'
         };
       case 'municipal-report':
         return {
@@ -336,14 +332,14 @@ export default function App() {
               </div>
               <h2 style={{ fontSize: '1.4rem', color: '#fff', marginBottom: '8px' }}>Citizen Hazard Perception Portal</h2>
               <p style={{ color: '#a1a1aa', fontSize: '0.88rem', marginBottom: '24px', lineHeight: 1.5 }}>
-                AI Hazard Perception Scanner and citizen incident reporting are dedicated to the Citizen Public Portal. As an Authority Administrator, you manage infrastructure via the Digital Twin GIS Map, SUMO Traffic Simulator, and Municipal Audit Hub.
+                AI Hazard Perception Scanner and citizen incident reporting are dedicated to the Citizen Public Portal. As an Authority Administrator, you manage infrastructure via the Live Road Map, Traffic & Risk Simulator, and Municipal Audit Hub.
               </p>
               <button 
                 className="btn-primary" 
                 onClick={() => setActiveTab('digital-twin')}
                 style={{ background: '#00E6B4', color: '#09090b', fontWeight: 600, width: '100%', justifyContent: 'center' }}
               >
-                Go to Digital Twin GIS Map
+                Go to Live Road Map
               </button>
             </div>
           ) : (
@@ -372,10 +368,10 @@ export default function App() {
           userRole === 'admin' ? <DigitalTwinMapView /> : renderRestrictedAccessNotice()
         )}
         {(activeTab === 'traffic-simulator' || activeTab === 'traffic-reroute') && (
-          userRole === 'admin' ? <TrafficRerouteView /> : renderRestrictedAccessNotice()
+          userRole === 'admin' ? <RiskCalculatorView initialSubTab="sumo-traffic" /> : renderRestrictedAccessNotice()
         )}
         {activeTab === 'risk-calculator' && (
-          userRole === 'admin' ? <RiskCalculatorView /> : renderRestrictedAccessNotice()
+          userRole === 'admin' ? <RiskCalculatorView initialSubTab="risk-calculator" /> : renderRestrictedAccessNotice()
         )}
       </div>
 

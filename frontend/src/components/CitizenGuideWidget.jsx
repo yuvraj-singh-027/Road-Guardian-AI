@@ -130,7 +130,7 @@ export default function CitizenGuideWidget({ userRole = 'public' }) {
                     </div>
                     <div>
                       <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Layers size={14} color="#F59E0B" /> 3D Digital Twin GIS Map
+                        <Layers size={14} color="#F59E0B" /> Live Road Map
                       </div>
                       <div style={{ fontSize: '0.75rem', color: '#a1a1aa', marginTop: '2px', lineHeight: 1.4 }}>
                         Monitor citywide hazard clusters, inspect pin metadata, and switch GIS layers (Heatmap, Satellite, Topological).

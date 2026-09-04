@@ -3,11 +3,9 @@ import { Camera, Map, ShieldAlert, Cpu, FileText, Activity, RefreshCw, Lock, Use
 
 export default function Sidebar({ activeTab, setActiveTab, userRole, onSelectRole, onSwitchPortal, onOpenProfile, isMobileOpen, setIsMobileOpen }) {
   const adminNavItems = [
-    { id: 'digital-twin', label: 'Digital Twin GIS Map', icon: Map, badge: 'GIS' },
-    { id: 'traffic-simulator', label: 'SUMO Traffic Simulator', icon: Cpu, badge: 'SUMO Sim' },
+    { id: 'digital-twin', label: 'Live Road Map', icon: Map, badge: 'Live' },
     { id: 'my-reports', label: 'Reports & Municipal Audit', icon: ClipboardList, badge: 'Audit Hub' },
-    { id: 'risk-calculator', label: 'Policy Simulator & Forensics', icon: ShieldAlert, badge: 'Lab' },
-    { id: 'public-feed', label: 'Public Feed & Incident History', icon: History, badge: 'Telemetry' },
+    { id: 'risk-calculator', label: 'Traffic & Risk Simulator', icon: ShieldAlert, badge: 'SUMO + AI' },
   ];
 
   const citizenNavItems = [

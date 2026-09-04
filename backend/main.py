@@ -246,6 +246,8 @@ class SumoPotholeSimRequest(BaseModel):
 
 class PDFReportRequest(BaseModel):
     target_department: Optional[str] = Field(default="Municipal Public Works Department (PWD)")
+    priority: Optional[str] = Field(default="High Priority / Emergency")
+    officer_notes: Optional[str] = Field(default="")
     detections_summary: Optional[Dict[str, Any]] = None
     critical_segments: Optional[List[Dict[str, Any]]] = None
 
@@ -1243,36 +1245,83 @@ def generate_pdf_endpoint(req: PDFReportRequest, current_user: dict = Depends(re
         "average_risk_score": 68.4
     }
     
-    critical_segments = req.critical_segments or [
-        {
-            "name": "Northern Arterial Road (Road A)",
-            "potholes": 8,
-            "risk_score": 88.5,
-            "status": "Critical",
-            "traffic_density": "High",
-            "action_required": "Immediate Emergency Repair & Traffic Diversion"
-        },
-        {
-            "name": "Cross Connector (Road C)",
-            "potholes": 5,
-            "risk_score": 72.1,
-            "status": "High Risk",
-            "traffic_density": "Moderate",
-            "action_required": "Scheduled Patching & Resurfacing"
-        }
-    ]
+    critical_segments = req.critical_segments
+    if not critical_segments or len(critical_segments) <= 2:
+        try:
+            net = get_default_city_network()
+            filtered = [s for s in net if s.get("status") in ["Critical", "High Risk", "Degraded"]]
+            if filtered:
+                critical_segments = [
+                    {
+                        "name": s.get("name", "Arterial Corridor").split(",")[0],
+                        "potholes": s.get("potholes", 3),
+                        "risk_score": float(s.get("risk_score", 75.0)),
+                        "status": s.get("status", "High Risk"),
+                        "traffic_density": s.get("traffic_density", "High"),
+                        "action_required": s.get("action_required", "Priority Pavement Patching & Detour")
+                    }
+                    for s in filtered[:5]
+                ]
+        except Exception:
+            pass
+
+    if not critical_segments:
+        critical_segments = [
+            {
+                "name": "Northern Arterial Road (Road A)",
+                "potholes": 8,
+                "risk_score": 88.5,
+                "status": "Critical",
+                "traffic_density": "High",
+                "action_required": "Immediate Emergency Repair & Traffic Diversion"
+            },
+            {
+                "name": "Connaught Place Radial Corridor",
+                "potholes": 6,
+                "risk_score": 82.4,
+                "status": "Critical",
+                "traffic_density": "Heavy",
+                "action_required": "Emergency Milling & Route Bypass"
+            },
+            {
+                "name": "Cross Connector (Road C)",
+                "potholes": 5,
+                "risk_score": 72.1,
+                "status": "High Risk",
+                "traffic_density": "Moderate",
+                "action_required": "Scheduled Patching & Resurfacing"
+            },
+            {
+                "name": "Kasturba Gandhi Marg Transit Way",
+                "potholes": 4,
+                "risk_score": 69.8,
+                "status": "High Risk",
+                "traffic_density": "High",
+                "action_required": "Asphalt Resurfacing & Warning Signage"
+            },
+            {
+                "name": "Barakhamba Road Metro Approach",
+                "potholes": 3,
+                "risk_score": 58.5,
+                "status": "Medium",
+                "traffic_density": "Moderate",
+                "action_required": "Municipal Maintenance Schedule"
+            }
+        ]
 
     pdf_bytes = generate_pdf_report(
         detections_summary=detections_summary,
         critical_segments=critical_segments,
-        target_department=req.target_department or "Municipal Public Works Department (PWD)"
+        target_department=req.target_department or "Municipal Public Works Department (PWD)",
+        priority=req.priority or "High Priority / Emergency",
+        officer_notes=req.officer_notes or ""
     )
     
     return Response(
         content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": "attachment; filename=Road_Guardian_Municipal_Audit_Report.pdf",
+            "Content-Disposition": "attachment; filename=Road_Guardian_AI_Report.pdf",
             "Access-Control-Expose-Headers": "Content-Disposition"
         }
     )
@@ -1472,7 +1521,7 @@ def generate_pdf_compat(department: str = Form("Regional Infrastructure Authorit
         content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=Road_Guardian_Audit_{department.replace(' ', '_')}.pdf",
+            "Content-Disposition": f"attachment; filename=Road_Guardian_AI_Report_{department.replace(' ', '_')}.pdf",
             "Access-Control-Expose-Headers": "Content-Disposition"
         }
     )

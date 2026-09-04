@@ -236,7 +236,7 @@ export default function MyReportsView({ user, userRole, onNavigateToDetection, i
               }}
             >
               <FileText size={16} color={subTab === 'municipal-report' ? '#00E6B4' : '#71717a'} />
-              <span>Audit PDF Generator & n8n Dispatch</span>
+              <span>Road Guardian AI Report (PDF & n8n)</span>
             </button>
           </>
         )}

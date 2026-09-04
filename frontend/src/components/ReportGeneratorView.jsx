@@ -163,7 +163,7 @@ export default function ReportGeneratorView() {
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      a.download = `Road_Guardian_Audit_${selectedDept.split(' ')[0]}_${Date.now()}.pdf`;
+      a.download = `Road_Guardian_AI_Report_${selectedDept.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 18)}_${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {
@@ -231,12 +231,14 @@ export default function ReportGeneratorView() {
       <div className="glass-card" style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <h3 style={{ fontSize: '1.05rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Landmark size={18} color="#00E6B4" /> Select Designated Government Authority Portal Section
+            <Landmark size={18} color="#00E6B4" /> Recipient Government Authority (Addressed To)
           </h3>
-          <span style={{ fontSize: '0.72rem', color: '#71717a' }}>Certified Header Formatting</span>
+          <span style={{ fontSize: '0.72rem', color: '#00E6B4', background: 'rgba(0, 230, 180, 0.1)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(0, 230, 180, 0.25)' }}>
+            Official Addressee Directive
+          </span>
         </div>
         <p style={{ fontSize: '0.82rem', color: '#a1a1aa', marginBottom: '16px' }}>
-          Choose the designated authority section to customize the certified PDF header and enable direct official portal dispatch.
+          Select the designated authority department to prominently address in the <strong>Road Guardian AI Report</strong> header and direct official work orders.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: '12px' }}>
@@ -281,7 +283,7 @@ export default function ReportGeneratorView() {
         {/* 2. Dispatch Configuration & Direct Action Controls */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.05rem', color: '#fff', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Send size={18} color="#38BDF8" /> Direct Transmission & PDF Export
+            <FileText size={18} color="#00E6B4" /> PDF Export & n8n Automated Dispatch
           </h3>
 
           <div style={{ padding: '14px', background: '#18181b', border: '1px solid var(--border-muted)', borderRadius: '10px', marginBottom: '16px' }}>
@@ -299,14 +301,14 @@ export default function ReportGeneratorView() {
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
               >
-                <option value="High Priority / Emergency">🔴 High Priority / Emergency Repair</option>
-                <option value="Standard Scheduled Maintenance">🟡 Standard Scheduled Patching</option>
-                <option value="Urgent Structural Audit">🟠 Urgent Structural Inspection</option>
+                <option value="High Priority / Emergency">High Priority / Emergency (SLA: 24h)</option>
+                <option value="Standard Priority">Standard Priority (SLA: 48h)</option>
+                <option value="Scheduled Maintenance">Scheduled Maintenance (SLA: 7 Days)</option>
               </select>
             </div>
 
             <div>
-              <label style={{ fontSize: '0.78rem', color: '#a1a1aa', display: 'block', marginBottom: '6px' }}>OFFICER DISPATCH NOTES (OPTIONAL)</label>
+              <label style={{ fontSize: '0.78rem', color: '#a1a1aa', display: 'block', marginBottom: '6px' }}>OFFICER / CONTRACTOR DIRECTIVE NOTES</label>
               <textarea
                 className="form-input"
                 value={officerNotes}
@@ -318,32 +320,15 @@ export default function ReportGeneratorView() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
             <button
               className="btn-primary"
               onClick={handleDownloadPDF}
               disabled={isGenerating}
-              style={{ justifyContent: 'center', padding: '10px 14px', fontSize: '0.84rem' }}
+              style={{ justifyContent: 'center', padding: '11px 16px', fontSize: '0.86rem' }}
             >
               {isGenerating ? <RefreshCw className="spin" size={16} /> : <Download size={16} />}
               {isGenerating ? 'Generating PDF...' : 'Download PDF Report'}
-            </button>
-
-            <button
-              className="btn-primary"
-              onClick={handleDirectTransmit}
-              disabled={isTransmitting}
-              style={{
-                justifyContent: 'center',
-                padding: '10px 14px',
-                fontSize: '0.84rem',
-                background: 'linear-gradient(135deg, #00E6B4 0%, #38BDF8 100%)',
-                color: '#09090b',
-                fontWeight: 700
-              }}
-            >
-              {isTransmitting ? <RefreshCw className="spin" size={16} /> : <Send size={16} />}
-              {isTransmitting ? 'Transmitting...' : 'Direct Send to Govt Portal'}
             </button>
 
             <button
@@ -352,16 +337,17 @@ export default function ReportGeneratorView() {
               disabled={isN8nSubmitting}
               style={{
                 justifyContent: 'center',
-                padding: '10px 14px',
-                fontSize: '0.84rem',
+                padding: '11px 16px',
+                fontSize: '0.86rem',
                 background: 'linear-gradient(135deg, #EA580C 0%, #F97316 100%)',
                 color: '#fff',
                 fontWeight: 700,
-                border: 'none'
+                border: 'none',
+                boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)'
               }}
             >
               {isN8nSubmitting ? <RefreshCw className="spin" size={16} /> : <Zap size={16} />}
-              {isN8nSubmitting ? 'Dispatching...' : 'Dispatch via n8n Automation'}
+              {isN8nSubmitting ? 'Dispatching via n8n...' : 'Dispatch via n8n Automation'}
             </button>
           </div>
         </div>
@@ -430,44 +416,6 @@ export default function ReportGeneratorView() {
         </div>
       </div>
 
-      {/* 4. Live Transmission Acknowledgment Receipt Modal / Card */}
-      {transmissionReceipt && (
-        <div style={{ marginTop: '20px' }} className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '1.05rem', color: '#00E6B4', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FileCheck size={20} /> Government Portal Dispatch Certificate (Official Receipt)
-            </h3>
-            <span className="badge badge-healthy" style={{ fontSize: '0.8rem' }}>
-              {transmissionReceipt.acknowledgement_code}
-            </span>
-          </div>
-
-          <div style={{ padding: '16px', background: '#18181b', border: '1px solid rgba(0, 230, 180, 0.25)', borderRadius: '10px' }}>
-            <div className="grid-2" style={{ gap: '12px', fontSize: '0.85rem', marginBottom: '14px' }}>
-              <div>
-                <span style={{ color: '#71717a' }}>Target Portal:</span>
-                <p style={{ color: '#fff', fontWeight: 600 }}>{transmissionReceipt.target_department}</p>
-              </div>
-              <div>
-                <span style={{ color: '#71717a' }}>Dispatch Tracking Ref:</span>
-                <p style={{ color: '#00E6B4', fontWeight: 700, fontFamily: 'monospace' }}>{transmissionReceipt.dispatch_reference}</p>
-              </div>
-              <div>
-                <span style={{ color: '#71717a' }}>SHA256 Audit Verification:</span>
-                <p style={{ color: '#38BDF8', fontWeight: 600, fontFamily: 'monospace' }}>{transmissionReceipt.verification_hash}</p>
-              </div>
-              <div>
-                <span style={{ color: '#71717a' }}>Timestamp:</span>
-                <p style={{ color: '#fff', fontWeight: 600 }}>{transmissionReceipt.timestamp}</p>
-              </div>
-            </div>
-
-            <div style={{ padding: '10px 14px', background: 'rgba(0, 230, 180, 0.06)', borderRadius: '8px', borderLeft: '3px solid #00E6B4', color: '#fff', fontSize: '0.82rem' }}>
-              <strong>Portal Ingestion Response:</strong> {transmissionReceipt.portal_response}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 4.5 n8n Automation Webhook Receipt */}
       {n8nReceipt && (

@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Gauge, Sliders, CheckCircle2, Sparkles, BarChart2, ShieldCheck, Database, Image as ImageIcon, ExternalLink, ArrowRight, RefreshCw, MapPin } from 'lucide-react';
+import { ShieldAlert, Gauge, Sliders, CheckCircle2, Sparkles, BarChart2, ShieldCheck, Database, Image as ImageIcon, ExternalLink, ArrowRight, RefreshCw, MapPin, Cpu } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, CartesianGrid } from 'recharts';
 import AuthenticityVerifierView from './AuthenticityVerifierView';
+import TrafficRerouteView from './TrafficRerouteView';
 
-export default function RiskCalculatorView() {
-  const [subTab, setSubTab] = useState('risk-calculator');
+export default function RiskCalculatorView({ initialSubTab = 'risk-calculator' }) {
+  const [subTab, setSubTab] = useState(initialSubTab);
   const [sourceMode, setSourceMode] = useState('database'); // 'database' | 'manual'
   const [dbReports, setDbReports] = useState([]);
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [loadingReports, setLoadingReports] = useState(false);
   const [lockConfidenceToPhoto, setLockConfidenceToPhoto] = useState(true);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   const [params, setParams] = useState({
     severity: 'High',
@@ -97,8 +104,8 @@ export default function RiskCalculatorView() {
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       
-      {/* Sub-Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '8px', background: '#18181b', padding: '4px', borderRadius: '12px', border: '1px solid #27272a', width: 'fit-content' }}>
+      {/* Sub-Navigation Tabs: 3-in-1 Simulation Lab */}
+      <div style={{ display: 'flex', gap: '8px', background: '#18181b', padding: '4px', borderRadius: '12px', border: '1px solid #27272a', width: 'fit-content', flexWrap: 'wrap' }}>
         <button
           onClick={() => setSubTab('risk-calculator')}
           style={{
@@ -117,7 +124,31 @@ export default function RiskCalculatorView() {
           }}
         >
           <ShieldAlert size={16} color={subTab === 'risk-calculator' ? '#00E6B4' : '#71717a'} />
-          <span>What-If Risk Policy Simulator</span>
+          <span>What-If Risk Engine</span>
+        </button>
+
+        <button
+          onClick={() => setSubTab('sumo-traffic')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: 'none',
+            background: subTab === 'sumo-traffic' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+            color: subTab === 'sumo-traffic' ? '#38BDF8' : '#a1a1aa',
+            fontWeight: subTab === 'sumo-traffic' ? 700 : 500,
+            fontSize: '0.84rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Cpu size={16} color={subTab === 'sumo-traffic' ? '#38BDF8' : '#71717a'} />
+          <span>SUMO Traffic Simulator</span>
+          <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(56, 189, 248, 0.2)', color: '#38BDF8' }}>
+            Kinematics
+          </span>
         </button>
 
         <button
@@ -138,7 +169,7 @@ export default function RiskCalculatorView() {
           }}
         >
           <ShieldCheck size={16} color={subTab === 'authenticity' ? '#00E6B4' : '#71717a'} />
-          <span>Image Authenticity & Forensics Lab</span>
+          <span>Image Authenticity & Forensics</span>
           {activeImageUrl && (
             <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(0,230,180,0.2)', color: '#00E6B4' }}>
               Photo Loaded
@@ -149,9 +180,11 @@ export default function RiskCalculatorView() {
 
       {subTab === 'authenticity' ? (
         <AuthenticityVerifierView initialImageUrl={activeImageUrl} />
+      ) : subTab === 'sumo-traffic' ? (
+        <TrafficRerouteView initialSimMode="sumo" />
       ) : (
       <>
-        {/* Explanatory Policy Sandbox Notice */}
+        {/* Explanatory Traffic & Risk Sandbox Notice */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -164,7 +197,7 @@ export default function RiskCalculatorView() {
           color: '#cbd5e1',
         }}>
           <Sparkles size={16} color="#00E6B4" style={{ flexShrink: 0 }} />
-          <span><strong>Municipal Policy Sandbox:</strong> Live incoming reports are scored automatically. Use this simulator to test how weather, speed limits, and school zones impact priority weighting and emergency repair SLAs.</span>
+          <span><strong>Traffic & Risk Sandbox:</strong> Live incoming road defects are scored automatically. Use this simulator to test how weather, speed limits, and traffic density impact road hazard priority weighting and emergency repair SLAs.</span>
         </div>
 
         {/* DATA SOURCE SELECTOR: Real DB Incident Photo vs Manual */}
