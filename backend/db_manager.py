@@ -1224,7 +1224,7 @@ def clear_all_detections() -> Tuple[bool, str]:
                 conn.execute("DELETE FROM pothole_detections;")
                 conn.execute("DELETE FROM authenticity_audits;")
                 conn.execute("DELETE FROM report_status_history;")
-                conn.execute("VACUUM;")
+            conn.execute("VACUUM;")
 
         # Set user cleared flag to prevent auto CSV re-seeding
         try:

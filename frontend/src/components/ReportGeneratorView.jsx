@@ -111,11 +111,18 @@ export default function ReportGeneratorView() {
     { name: 'Routine Surveillance', value: 103, color: '#10B981' }
   ];
 
-  const getPayload = () => ({
-    target_department: selectedDept,
-    priority: priority,
-    officer_notes: officerNotes || 'Routine automated infrastructure audit transmission.'
-  });
+  const getPayload = () => {
+    const activeEmail = (user && user.email) || localStorage.getItem('road_guardian_reporter_email') || '';
+    return {
+      target_department: selectedDept,
+      priority: priority,
+      officer_notes: officerNotes || 'Routine automated infrastructure audit transmission.',
+      reporter_email: activeEmail,
+      user_email: activeEmail,
+      email: activeEmail,
+      user_gmail: activeEmail
+    };
+  };
 
   const [alertBanner, setAlertBanner] = useState(null);
 
@@ -427,7 +434,7 @@ export default function ReportGeneratorView() {
               </div>
               <div>
                 <span style={{ color: '#71717a' }}>Target n8n Cloud Webhook:</span>
-                <p style={{ color: '#EA580C', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.78rem' }}>{n8nReceipt.webhook_url || 'https://yuvi027.app.n8n.cloud/webhook/road-guardian-report'}</p>
+                <p style={{ color: '#EA580C', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.78rem' }}>{n8nReceipt.webhook_url || 'https://lakshy143.app.n8n.cloud/webhook/road-guardian'}</p>
               </div>
               <div>
                 <span style={{ color: '#71717a' }}>Automated Targets:</span>

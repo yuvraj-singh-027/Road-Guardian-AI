@@ -366,11 +366,10 @@ def analyze_photo_authenticity(
     # 1. EXIF Metadata
     exif_data = check_exif_metadata(image_bytes)
 
-    # 2. GPS Coherence
-    gps_lat, gps_lon = (None, None)
-    if manual_gps and len(manual_gps) == 2:
-        gps_lat, gps_lon = manual_gps
-    gps_valid = validate_gps_coordinates(gps_lat, gps_lon) or exif_data.get("has_gps_exif", False)
+    # 2. GPS Coherence (Only valid if camera EXIF contains GPS tag or user explicitly opted for manual GPS)
+    has_camera_gps = bool(exif_data.get("has_gps_exif", False))
+    has_user_manual_gps = bool(manual_gps and len(manual_gps) == 2 and validate_gps_coordinates(manual_gps[0], manual_gps[1]))
+    gps_valid = has_camera_gps or has_user_manual_gps
 
     # 3. pHash Duplicates
     # Convert similarity threshold % (e.g. 88%) to Hamming distance cutoff
@@ -559,7 +558,7 @@ def analyze_photo_authenticity(
                 "status": "passed" if gps_valid else "warning",
                 "status_label": "VALIDATED" if gps_valid else "UNPINNED",
                 "label": "Coordinates Coherent" if gps_valid else "Client Location Pin",
-                "details": f"Lat: {gps_lat:.4f}, Lon: {gps_lon:.4f}" if (gps_lat and gps_lon) else ("EXIF Geotag Present" if exif_data.get("has_gps_exif") else "Fallback Coordinates")
+                "details": "EXIF Geotag Present" if exif_data.get("has_gps_exif") else "Fallback Coordinates (Geotag Missing)"
             },
             {
                 "id": "timestamp",

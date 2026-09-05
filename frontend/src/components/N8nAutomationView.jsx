@@ -10,7 +10,7 @@ export default function N8nAutomationView({ user }) {
   const [isSyncingDb, setIsSyncingDb] = useState(false);
   const [syncDbResult, setSyncDbResult] = useState(null);
   const [customReporterEmail, setCustomReporterEmail] = useState(() => {
-    return localStorage.getItem('road_guardian_reporter_email') || (user && user.email !== 'admin@roadguardian.gov' ? user.email : 'citizen@roadguardian.gov');
+    return localStorage.getItem('road_guardian_reporter_email') || (user && user.email ? user.email : '');
   });
 
   const handleSyncAllDbPotholes = async () => {
@@ -29,7 +29,7 @@ export default function N8nAutomationView({ user }) {
             status: 200,
             mode: 'EXCEL AUTO-SYNC',
             timestamp: new Date().toLocaleTimeString(),
-            webhookUrl: 'https://yuvi027.app.n8n.cloud/webhook/road-guardian-report'
+            webhookUrl: 'https://lakshy143.app.n8n.cloud/webhook/road-guardian'
           },
           ...prev
         ]);
@@ -48,7 +48,7 @@ export default function N8nAutomationView({ user }) {
       status: 200,
       mode: 'ACTIVE PRODUCTION',
       timestamp: new Date().toLocaleTimeString(),
-      webhookUrl: 'https://yuvi027.app.n8n.cloud/webhook/road-guardian-report'
+      webhookUrl: 'https://lakshy143.app.n8n.cloud/webhook/road-guardian'
     }
   ]);
 
@@ -100,7 +100,7 @@ export default function N8nAutomationView({ user }) {
     setIsSubmitting(true);
     setSubmitResult(null);
     try {
-      const activeEmail = customReporterEmail || localStorage.getItem('road_guardian_reporter_email') || (user && user.email !== 'admin@roadguardian.gov' ? user.email : 'citizen@roadguardian.gov');
+      const activeEmail = customReporterEmail || localStorage.getItem('road_guardian_reporter_email') || (user && user.email ? user.email : '');
       const sampleReport = {
         event: "HAZARD_DETECTED",
         target_department: "Municipal Public Works Department (PWD)",
@@ -143,7 +143,7 @@ export default function N8nAutomationView({ user }) {
           status: data.webhook_status || 200,
           mode: 'ACTIVE PRODUCTION',
           timestamp: new Date().toLocaleTimeString(),
-          webhookUrl: data.webhook_url || 'https://yuvi027.app.n8n.cloud/webhook/road-guardian-report'
+          webhookUrl: data.webhook_url || 'https://lakshy143.app.n8n.cloud/webhook/road-guardian'
         },
         ...prev
       ]);
@@ -177,7 +177,7 @@ export default function N8nAutomationView({ user }) {
             <RefreshCw size={15} /> Refresh Status
           </button>
           <a 
-            href="https://yuvi027.app.n8n.cloud" 
+            href="https://lakshy143.app.n8n.cloud" 
             target="_blank" 
             rel="noopener noreferrer" 
             className="btn-primary" 
@@ -203,7 +203,7 @@ export default function N8nAutomationView({ user }) {
             <CheckCircle2 size={20} color="#22c55e" /> n8n Cloud Dispatcher
           </div>
           <div style={{ fontSize: '0.78rem', color: '#71717a', marginTop: '8px', wordBreak: 'break-all' }}>
-            Endpoint: <code style={{ color: '#EA580C' }}>https://yuvi027.app.n8n.cloud/webhook/road-guardian-report</code>
+            Endpoint: <code style={{ color: '#EA580C' }}>https://lakshy143.app.n8n.cloud/webhook/road-guardian</code>
           </div>
         </div>
 
